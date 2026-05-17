@@ -1,0 +1,157 @@
+# Simulator init state for the formation example.
+#
+# Spawns 22 DotBots scattered across a 2000x2000 mm arena — enough for the
+# largest letter in the 5x7 font (B = 20 pixels) plus 2 extras to exercise the
+# "park" path. Layout is a 5x5 grid (400 mm spacing) minus 3 cells so the
+# Hungarian assignment has interesting work to do.
+#
+# Use with:
+#   dotbot-controller -a dotbot-simulator \
+#       --simulator-init-state dotbot/examples/formation/simulator_init_state.toml
+
+[network]
+pdr = 100
+uplink_pdr = 100
+downlink_pdr = 100
+slot_duration_ms = 1.236
+mqtt_latency_ms = 0.0
+
+# Row y=400 (4 bots, skip x=200)
+[[dotbots]]
+address = "F02E000000000001"
+calibrated = 0xff
+pos_x = 600
+pos_y = 400
+direction = 0
+network_mode = "default"
+
+[[dotbots]]
+address = "F02E000000000002"
+pos_x = 1000
+pos_y = 400
+direction = 90
+
+[[dotbots]]
+address = "F02E000000000003"
+pos_x = 1400
+pos_y = 400
+direction = 180
+
+[[dotbots]]
+address = "F02E000000000004"
+pos_x = 1800
+pos_y = 400
+direction = 270
+
+# Row y=800 (5 bots)
+[[dotbots]]
+address = "F02E000000000005"
+pos_x = 200
+pos_y = 800
+direction = 0
+
+[[dotbots]]
+address = "F02E000000000006"
+pos_x = 600
+pos_y = 800
+direction = 90
+
+[[dotbots]]
+address = "F02E000000000007"
+pos_x = 1000
+pos_y = 800
+direction = 180
+
+[[dotbots]]
+address = "F02E000000000008"
+pos_x = 1400
+pos_y = 800
+direction = 270
+
+[[dotbots]]
+address = "F02E000000000009"
+pos_x = 1800
+pos_y = 800
+direction = 0
+
+# Row y=1200 (4 bots, skip x=1000 — leave center clear)
+[[dotbots]]
+address = "F02E00000000000A"
+pos_x = 200
+pos_y = 1200
+direction = 90
+
+[[dotbots]]
+address = "F02E00000000000B"
+pos_x = 600
+pos_y = 1200
+direction = 180
+
+[[dotbots]]
+address = "F02E00000000000C"
+pos_x = 1400
+pos_y = 1200
+direction = 270
+
+[[dotbots]]
+address = "F02E00000000000D"
+pos_x = 1800
+pos_y = 1200
+direction = 0
+
+# Row y=1600 (5 bots)
+[[dotbots]]
+address = "F02E00000000000E"
+pos_x = 200
+pos_y = 1600
+direction = 90
+
+[[dotbots]]
+address = "F02E00000000000F"
+pos_x = 600
+pos_y = 1600
+direction = 180
+
+[[dotbots]]
+address = "F02E000000000010"
+pos_x = 1000
+pos_y = 1600
+direction = 270
+
+[[dotbots]]
+address = "F02E000000000011"
+pos_x = 1400
+pos_y = 1600
+direction = 0
+
+[[dotbots]]
+address = "F02E000000000012"
+pos_x = 1800
+pos_y = 1600
+direction = 90
+
+# Row y=200 (4 bots, skip x=1800 — gives a slight asymmetry to make
+# the Hungarian assignment non-trivial)
+[[dotbots]]
+address = "F02E000000000013"
+pos_x = 200
+pos_y = 200
+direction = 180
+
+[[dotbots]]
+address = "F02E000000000014"
+pos_x = 600
+pos_y = 200
+direction = 270
+
+[[dotbots]]
+address = "F02E000000000015"
+pos_x = 1000
+pos_y = 200
+direction = 0
+
+[[dotbots]]
+address = "F02E000000000016"
+pos_x = 1400
+pos_y = 200
+direction = 90
