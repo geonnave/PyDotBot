@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -228,6 +229,13 @@ class Announcement:
         """The declared value of every control that carries one."""
         return {c["id"]: c["value"] for c in self.controls if "value" in c}
 
+    def control(self, control_id: str) -> dict[str, Any] | None:
+        """The declaration of one control, or None if it was not declared."""
+        for decl in self.controls:
+            if decl.get("id") == control_id:
+                return decl
+        return None
+
 
 def app_topics(root: str, swarm: str, name: str) -> tuple[str, str, str]:
     """The announce, input and output topics of one app."""
@@ -319,16 +327,26 @@ class TextInput:
     text: str
 
 
+def _coord(raw: Any) -> float:
+    """One arena coordinate. NaN and the infinities are not coordinates."""
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("coordinate is not finite")
+    return value
+
+
 def _point(raw: Any) -> Point | None:
     try:
-        return Point(float(raw["x"]), float(raw["y"]))
+        return Point(_coord(raw["x"]), _coord(raw["y"]))
     except (KeyError, TypeError, ValueError):
         return None
 
 
 def _rect(raw: Any) -> Rect | None:
     try:
-        return Rect(float(raw["x"]), float(raw["y"]), float(raw["w"]), float(raw["h"]))
+        return Rect(
+            _coord(raw["x"]), _coord(raw["y"]), _coord(raw["w"]), _coord(raw["h"])
+        )
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -390,6 +408,36 @@ def parse_input(payload: Any) -> Any:
     if kind is None:
         return None
     return payload
+
+
+def coerce_control(decl: dict[str, Any], value: Any) -> Any:
+    """
+    `value` as the control's declared type, or None when it is not one.
+
+    Values arrive from a broker that at a demo is open to the room, and
+    every loop reads them as a number or a known option.
+    """
+    kind = decl.get("type")
+    if kind == "slider":
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number):
+            return None
+        low = float(decl.get("min", number))
+        high = float(decl.get("max", number))
+        return min(max(number, low), high)
+    if kind == "toggle":
+        if isinstance(value, bool):
+            return value
+        return bool(value) if value in (0, 1) else None
+    if kind == "select":
+        options = decl.get("options") or []
+        return value if isinstance(value, str) and value in options else None
+    if kind == "text":
+        return value if isinstance(value, str) else None
+    return None
 
 
 # ------------------------------------------------------------- assignment
@@ -792,8 +840,17 @@ class PlaygroundApp:
             self.pointer = parsed
             self._fire(self._on_pointer, parsed)
         elif isinstance(parsed, ControlChange):
-            self.values[parsed.id] = parsed.value
-            self._fire(self._on_control, parsed)
+            decl = self.announcement.control(parsed.id)
+            if decl is None:
+                return
+            value = coerce_control(decl, parsed.value)
+            if value is None:
+                return
+            self.values[parsed.id] = value
+            self._fire(
+                self._on_control,
+                ControlChange(client=parsed.client, id=parsed.id, value=value),
+            )
         elif isinstance(parsed, Action):
             self._fire(self._on_action, parsed)
         elif isinstance(parsed, GoalsInput):

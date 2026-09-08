@@ -22,6 +22,7 @@ from dotbot.examples.common.playground import (
     CommandQueue,
     ControlChange,
     GoalsInput,
+    PlaygroundApp,
     Point,
     PointerSample,
     Rect,
@@ -30,10 +31,12 @@ from dotbot.examples.common.playground import (
     app_topics,
     assign_targets,
     clear_message,
+    coerce_control,
     overlay_badge,
     overlay_point,
     overlay_rect,
     parse_input,
+    select,
     slider,
     toggle,
 )
@@ -578,3 +581,70 @@ class TestShippedAnnouncements:
         for kind in ("pointer", "goals", "rects", "text"):
             claimants = [a.name for a in self.ALL if kind in a.inputs]
             assert len(claimants) == 1, f"{kind}: {claimants}"
+
+
+class TestControlValues:
+    """Nothing off the broker reaches a loop as a type it did not declare."""
+
+    SPEED = slider("speed", 0, 100, 60)
+    FIGURE = select("figure", ["ring", "grid"], "ring")
+    WANDER = toggle("wander", True)
+
+    def test_a_slider_is_clamped_to_what_it_declared(self):
+        assert coerce_control(self.SPEED, 9999) == 100.0
+        assert coerce_control(self.SPEED, -5) == 0.0
+        assert coerce_control(self.SPEED, "80") == 80.0
+
+    def test_a_slider_rejects_what_is_not_a_number(self):
+        assert coerce_control(self.SPEED, "abc") is None
+        assert coerce_control(self.SPEED, None) is None
+        assert coerce_control(self.SPEED, float("nan")) is None
+        assert coerce_control(self.SPEED, float("inf")) is None
+
+    def test_a_select_only_takes_a_declared_option(self):
+        assert coerce_control(self.FIGURE, "grid") == "grid"
+        assert coerce_control(self.FIGURE, "spiral") is None
+        assert coerce_control(self.FIGURE, 2) is None
+
+    def test_a_toggle_takes_a_bool(self):
+        assert coerce_control(self.WANDER, False) is False
+        assert coerce_control(self.WANDER, 0) is False
+        assert coerce_control(self.WANDER, "nope") is None
+
+    @staticmethod
+    def _app():
+        app = PlaygroundApp(
+            Announcement(
+                name="t", title="T", hint="h", controls=[slider("speed", 0, 100, 60)]
+            )
+        )
+        app.swarm = "0000"
+        return app
+
+    def _deliver(self, app, message):
+        app._on_message(None, None, json.dumps(message).encode(), 0, None)
+
+    def test_a_bad_value_leaves_the_declared_default_standing(self):
+        app = self._app()
+        self._deliver(app, {"kind": "control", "id": "speed", "value": "abc"})
+        assert app.values["speed"] == 60
+
+    def test_an_undeclared_control_never_reaches_the_values(self):
+        app = self._app()
+        self._deliver(app, {"kind": "control", "id": "whatever", "value": 1})
+        assert "whatever" not in app.values
+
+    def test_a_callback_sees_the_coerced_value(self):
+        app = self._app()
+        seen = []
+        app.on_control(seen.append)
+        self._deliver(app, {"kind": "control", "id": "speed", "value": 9999})
+        assert seen == [ControlChange(client="", id="speed", value=100.0)]
+
+    def test_a_coordinate_that_is_not_finite_is_not_a_coordinate(self):
+        assert parse_input(b'{"kind":"goals","points":[{"x":0,"y":NaN}]}') is None
+        assert parse_input(b'{"kind":"pointer","at":{"x":Infinity,"y":0}}') is None
+        assert (
+            parse_input(b'{"kind":"rects","rects":[{"x":0,"y":0,"w":NaN,"h":1}]}')
+            is None
+        )
