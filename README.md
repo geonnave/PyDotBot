@@ -195,7 +195,7 @@ Full walkthrough - arena sizing and the cabled alternative - is in the
   [SEGGER Embedded Studio](https://www.segger.com/products/development-tools/embedded-studio/)
   and a DotBot-firmware checkout:
   ```bash
-  git clone --recurse-submodules --branch develop https://github.com/DotBots/DotBot-firmware.git
+  git clone --recurse-submodules https://github.com/DotBots/DotBot-firmware.git
   export DOTBOT_FIRMWARE_REPO=$(pwd)/DotBot-firmware
   ```
   then `dotbot fw build` / `dotbot fw artifacts` (see [`fw`][fw-doc]).
