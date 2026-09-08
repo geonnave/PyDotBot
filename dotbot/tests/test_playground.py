@@ -1,9 +1,11 @@
 """The playground contract: announcement, will, inputs, assignment, demos."""
 
+import asyncio
 import json
 import random
 import time
 
+import httpx
 import numpy as np
 import pytest
 
@@ -16,11 +18,13 @@ from dotbot.examples.charging.charging import (
     pads,
 )
 from dotbot.examples.common.playground import (
+    DOTBOT_STATUS_LOST,
     Action,
     Announcement,
     Bot,
     CommandQueue,
     ControlChange,
+    ControllerClient,
     GoalsInput,
     PlaygroundApp,
     Point,
@@ -648,3 +652,111 @@ class TestControlValues:
             parse_input(b'{"kind":"rects","rects":[{"x":0,"y":0,"w":NaN,"h":1}]}')
             is None
         )
+
+
+class TestReconnect:
+    """The demo announces and subscribes on every connect, not only the first."""
+
+    @staticmethod
+    def _app():
+        app = PlaygroundApp(Announcement(name="t", title="T", hint="h"))
+        app.swarm = "0000"
+        return app
+
+    def test_connecting_announces_retained_and_subscribes(self):
+        app = self._app()
+        published, subscribed = [], []
+
+        class FakeClient:
+            def publish(self, topic, payload, qos=0, retain=False):
+                published.append((topic, payload, qos, retain))
+
+            def subscribe(self, topic, qos=0):
+                subscribed.append((topic, qos))
+
+        app._on_connect(FakeClient(), 0, 0, None)
+        announce, inbound, _ = app.topics
+        assert published == [
+            (announce, app.announcement.payload(), 1, True),
+        ]
+        assert subscribed == [(inbound, 0)]
+
+
+def _listing_response(bots):
+    def handler(request):
+        assert request.url.path.endswith("/dotbots")
+        return httpx.Response(200, json=bots)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def _raw(address, status=0, x=100.0, y=100.0):
+    return {
+        "address": address,
+        "status": status,
+        "application": 0,
+        "direction": 0,
+        "battery": 3.0,
+        "lh2_position": {"x": x, "y": y},
+    }
+
+
+class TestFleetBookkeeping:
+    @pytest.mark.asyncio
+    async def test_a_bot_that_left_the_listing_leaves_the_fleet(self):
+        client = ControllerClient()
+        client._http = _listing_response([_raw("AA"), _raw("BB")])
+        await client.refresh()
+        assert set(client.bots) == {"AA", "BB"}
+
+        client._http = _listing_response([_raw("AA")])
+        await client.refresh()
+        assert set(client.bots) == {"AA"}
+
+    @pytest.mark.asyncio
+    async def test_a_lost_bot_does_not_hold_its_slot(self):
+        client = ControllerClient()
+        client._http = _listing_response([_raw("AA"), _raw("BB")])
+        await client.refresh()
+
+        client._http = _listing_response(
+            [_raw("AA"), _raw("BB", status=DOTBOT_STATUS_LOST)]
+        )
+        await client.refresh()
+        assert set(client.bots) == {"AA"}
+
+    @pytest.mark.asyncio
+    async def test_a_body_that_is_not_json_leaves_the_fleet_as_it_was(self):
+        client = ControllerClient()
+        client._http = _listing_response([_raw("AA")])
+        await client.refresh()
+
+        def handler(request):
+            return httpx.Response(502, text="<html>bad gateway</html>")
+
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await client.refresh()
+        assert set(client.bots) == {"AA"}
+
+
+class TestTheFeedStaysUp:
+    @pytest.mark.asyncio
+    async def test_the_listener_retries_rather_than_dying(self, monkeypatch):
+        attempts = []
+
+        def connect(url):
+            attempts.append(url)
+            raise RuntimeError("boom")
+
+        client = ControllerClient()
+        monkeypatch.setattr(
+            "dotbot.examples.common.playground.websockets.connect", connect
+        )
+        task = asyncio.create_task(client._listen())
+        await asyncio.sleep(0.05)
+        assert not task.done()
+        assert attempts
+        client._stop.set()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task

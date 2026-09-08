@@ -37,6 +37,10 @@ KEEPALIVE_S = 5
 #: DotBot application id the controller's REST paths take. 0 is DotBot.
 APPLICATION_DOTBOT = 0
 
+#: The controller's DotBotStatus.LOST on the wire. It keeps a lost bot in its
+#: listing, so dropping one from the fleet is this client's job.
+DOTBOT_STATUS_LOST = 2
+
 
 # --------------------------------------------------------------- announcement
 
@@ -597,22 +601,40 @@ class ControllerClient:
         await self._http.aclose()
 
     async def refresh(self) -> None:
-        """Re-read the whole fleet, which is how a new bot is noticed."""
+        """
+        Re-read the whole fleet: what is new joins, what is gone leaves.
+
+        Pruning is the point: a lost bot keeps its listing entry, and a
+        fleet that only grows drives switched-off robots and holds their
+        slot in every formation.
+        """
         try:
             listing = (await self._http.get(f"{self._api}/dotbots")).json()
-        except httpx.HTTPError:
+        except (httpx.HTTPError, ValueError):
             return
+        if not isinstance(listing, list):
+            return
+        seen: set[str] = set()
         for raw in listing:
-            self._absorb(raw)
+            if not isinstance(raw, dict):
+                continue
+            if raw.get("status") == DOTBOT_STATUS_LOST:
+                continue
+            address = self._absorb(raw)
+            if address is not None:
+                seen.add(address)
+        for address in set(self.bots) - seen:
+            del self.bots[address]
 
-    def _absorb(self, raw: dict[str, Any]) -> None:
+    def _absorb(self, raw: dict[str, Any]) -> str | None:
+        """The address now in the fleet, or None if there was nothing to add."""
         address = raw.get("address")
         if not address:
-            return
+            return None
         position = raw.get("lh2_position")
         bot = self.bots.get(address)
         if position is None and bot is None:
-            return
+            return None
         heading = raw.get("direction")
         battery = raw.get("battery")
         self.bots[address] = Bot(
@@ -630,23 +652,41 @@ class ControllerClient:
                 float(battery) if battery is not None else (bot.battery if bot else 0.0)
             ),
         )
+        return address
 
     async def _listen(self) -> None:
+        """
+        The position feed, reconnecting for as long as the demo runs.
+
+        Nothing may raise out of here: the task is never awaited, so an
+        escaping exception leaves the demo driving stale positions with
+        nothing to show that the feed had stopped.
+        """
+        backoff = 1.0
         while not self._stop.is_set():
             try:
                 async with websockets.connect(self._ws_url) as socket:
+                    backoff = 1.0
                     async for raw in socket:
                         try:
                             message = json.loads(raw)
                         except ValueError:
                             continue
-                        data = message.get("data") or {}
+                        if not isinstance(message, dict):
+                            continue
+                        data = message.get("data")
+                        if not isinstance(data, dict):
+                            data = {}
                         if message.get("cmd") == 2 and data.get("address"):
                             self._absorb({**self._as_raw(data["address"]), **data})
                         else:
                             await self.refresh()
-            except (OSError, websockets.WebSocketException):
-                await asyncio.sleep(1.0)
+            except Exception as exc:
+                click.echo(f"controller feed: {exc!r}", err=True)
+            if self._stop.is_set():
+                return
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 10.0)
 
     def _as_raw(self, address: str) -> dict[str, Any]:
         bot = self.bots.get(address)
@@ -672,6 +712,8 @@ class ControllerClient:
                     await self._http.put(url, json=payload)
                 except httpx.HTTPError:
                     continue
+                except Exception as exc:
+                    click.echo(f"command {kind} to {address}: {exc!r}", err=True)
 
     def waypoints(
         self, address: str, points: Sequence[Point], threshold: int = 100
@@ -781,9 +823,10 @@ class PlaygroundApp:
         await self.controller.start()
         if self.swarm is None:
             self.swarm = self.controller.swarm_id
-        announce, inbound, _ = self.topics
+        announce, _, _ = self.topics
         self._client = MQTTClient(self._client_id, will_message=clear_message(announce))
         self._client.on_message = self._on_message
+        self._client.on_connect = self._on_connect
         if self._broker.username:
             self._client.set_auth_credentials(
                 self._broker.username, self._broker.password
@@ -794,8 +837,6 @@ class PlaygroundApp:
             ssl=self._broker.scheme in ("mqtts", "wss"),
             keepalive=KEEPALIVE_S,
         )
-        self._client.publish(announce, self.announcement.payload(), qos=1, retain=True)
-        self._client.subscribe(inbound, qos=0)
 
     async def stop(self) -> None:
         """Leave the rail on the way out, rather than waiting for the will."""
@@ -824,6 +865,18 @@ class PlaygroundApp:
                 ],
             }
         )
+
+    def _on_connect(self, client, _flags, _rc, _properties):
+        """
+        Announce and subscribe on every connect, not only the first.
+
+        gmqtt reconnects by itself but does not resubscribe, and the
+        session is clean: without this a demo that outlives a broker blip
+        is deaf and gone from the rail, still driving the swarm.
+        """
+        announce, inbound, _ = self.topics
+        client.publish(announce, self.announcement.payload(), qos=1, retain=True)
+        client.subscribe(inbound, qos=0)
 
     def _publish_out(self, message: dict[str, Any]) -> None:
         if self._client is None:
