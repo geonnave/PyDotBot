@@ -325,15 +325,31 @@ class TestAssignTargets:
     def test_an_empty_swarm_assigns_nothing(self):
         assert len(assign_targets([], [[0, 0]])) == 0
 
-    def test_two_hundred_bots_assign_in_well_under_a_second(self):
+    def test_a_thousand_bots_assign_inside_one_command_period(self):
+        """A 5 Hz loop leaves 200 ms a tick, and this runs on that loop."""
         rng = np.random.default_rng(11)
-        bots = rng.uniform(0, 4000, (200, 2))
-        slots = rng.uniform(0, 4000, (200, 2))
+        bots = rng.uniform(0, 6000, (1000, 2))
+        slots = rng.uniform(0, 6000, (1000, 2))
         started = time.perf_counter()
         order = assign_targets(bots, slots)
         elapsed = time.perf_counter() - started
-        assert len(set(order.tolist())) == 200
+        assert len(set(order.tolist())) == 1000
         assert elapsed < 0.5, f"assignment took {elapsed:.3f} s"
+
+    def test_four_times_the_fleet_does_not_cost_sixty_four_times_as_much(self):
+        """Assignment is quadratic in the fleet; a scan per bot picked is cubic."""
+        rng = np.random.default_rng(5)
+
+        def timed(n):
+            bots = rng.uniform(0, 6000, (n, 2))
+            slots = rng.uniform(0, 6000, (n, 2))
+            started = time.perf_counter()
+            assign_targets(bots, slots, max_passes=0)
+            return time.perf_counter() - started
+
+        timed(250)  # warm up numpy, whose first call carries setup
+        small = max(timed(250), 1e-4)
+        assert timed(1000) < 30 * small
 
 
 class TestRasterisedWords:

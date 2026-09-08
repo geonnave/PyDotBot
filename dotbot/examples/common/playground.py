@@ -448,15 +448,24 @@ def coerce_control(decl: dict[str, Any], value: Any) -> Any:
 
 
 def _greedy(cost: np.ndarray) -> np.ndarray:
-    """Nearest pair first, then the nearest of what is left, until none is."""
+    """
+    The nearest free target for each source, taken in source order.
+
+    Picking the globally nearest pair instead costs a scan of the whole
+    matrix per source, so a thousand bots on a thousand targets is a
+    billion tests rather than half a million. It is also the worse
+    assignment: choosing the best pair every time strands the last
+    sources with whatever is left across the arena.
+    """
     rows, columns = cost.shape
-    work = cost.astype(float, copy=True)
+    free = np.arange(columns)
     assign = np.zeros(rows, dtype=int)
-    for _ in range(rows):
-        row, column = divmod(int(np.argmin(work)), columns)
-        assign[row] = column
-        work[row, :] = np.inf
-        work[:, column] = np.inf
+    remaining = columns
+    for row in range(rows):
+        nearest = int(np.argmin(cost[row, free[:remaining]]))
+        assign[row] = free[nearest]
+        remaining -= 1
+        free[nearest] = free[remaining]
     return assign
 
 
@@ -464,7 +473,7 @@ def _swap_passes(cost: np.ndarray, assign: np.ndarray, max_passes: int) -> np.nd
     """
     Exchange the targets of two bots while that shortens the pair.
 
-    Greedy leaves crossings behind - the bot picked early takes a target a
+    Greedy leaves crossings behind - a bot served early takes a target a
     later one was much closer to - and every such crossing is one exchange
     away from being gone.
     """
@@ -493,10 +502,10 @@ def assign_targets(sources: Any, targets: Any, *, max_passes: int = 8) -> np.nda
     """
     One distinct target per source, by squared distance.
 
-    Greedy nearest-first followed by swap passes: not optimal, but within a
-    few percent of it and fast enough to run every time the swarm is
-    re-aimed. Returns a target index per source, in source order. There must
-    be at least as many targets as sources.
+    Nearest-free per source followed by swap passes: not optimal, but
+    within about 12% of it and fast enough to run every time the swarm is
+    re-aimed. Returns a target index per source, in source order. There
+    must be at least as many targets as sources.
     """
     src = np.asarray(sources, dtype=float).reshape(-1, 2)
     dst = np.asarray(targets, dtype=float).reshape(-1, 2)
