@@ -81,11 +81,13 @@ class DotBotWaypoints(BaseModel):
     waypoints: List[Union[DotBotLH2Position, DotBotGPSPosition]]
 
 
-class DotBotMapSizeModel(BaseModel):
-    """Map size model."""
+class DotBotBoundsModel(BaseModel):
+    """One rectangle of the active bounds, in frame millimetres."""
 
-    width: int  # in mm unit
-    height: int  # in mm unit
+    x: int
+    y: int
+    w: int
+    h: int
 
 
 class DotBotConnectionModel(BaseModel):
@@ -136,7 +138,7 @@ class DotBotRequestType(IntEnum):
     """Request received from MQTT client."""
 
     DOTBOTS: int = 0
-    MAP_SIZE: int = 1
+    BOUNDS: int = 1
 
 
 class DotBotRequestModel(BaseModel):

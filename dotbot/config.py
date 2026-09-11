@@ -136,10 +136,25 @@ class SwarmSection(_Strict):
     devices: str | None = None
 
 
+class BoundsSection(_Strict):
+    """One `[bounds.<name>]` table: a rectangle of the frame, in millimetres.
+
+    `walls` names the edges a wall occupies, which is what insets a corner
+    mark by the robot's own clearance.
+    """
+
+    x: int
+    y: int
+    w: int
+    h: int
+    walls: list[str] = Field(default_factory=list)
+
+
 class ControllerSection(_Strict):
     http_port: int | None = None
     http_host: str | None = None
-    map_size: str | None = None
+    bounds: str | None = None
+    calibration: str | None = None
     background_map: str | None = None
     log_output: str | None = None
     csv_data_output: str | None = None
@@ -169,6 +184,11 @@ class DotbotConfig(_Strict):
     log_level: str | None = None
     conn: Conn = None
     swarm_id: str | None = None
+
+    # `[bounds.<name>]` tables map to {name: BoundsSection}. Shared across the
+    # whole config, since a bounds is a view of the floor rather than a
+    # property of one command.
+    bounds: dict[str, BoundsSection] = Field(default_factory=dict)
 
     fw: FwSection = Field(default_factory=FwSection)
     device: DeviceSection = Field(default_factory=DeviceSection)

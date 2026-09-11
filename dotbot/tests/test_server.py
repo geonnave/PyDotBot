@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
+from dotbot.bounds import Bounds
 from dotbot.controller import ControllerSettings
 from dotbot.models import (
     DotBotGPSPosition,
@@ -961,3 +962,14 @@ def test_the_api_binds_loopback_unless_asked_otherwise():
         gw_address="78", network_id="0", controller_http_host="0.0.0.0"
     )
     assert wide.controller_http_host == "0.0.0.0"
+
+
+@pytest.mark.asyncio
+async def test_get_controller_bounds():
+    """The active bounds reach a renderer as a list of frame rectangles."""
+    from dotbot.bounds import Bounds
+
+    api.controller.bounds = [Bounds(0, 2000, 2000, 2000, "annex", ("left",))]
+    response = await client.get("/controller/bounds")
+    assert response.status_code == 200
+    assert response.json() == [{"x": 0, "y": 2000, "w": 2000, "h": 2000}]

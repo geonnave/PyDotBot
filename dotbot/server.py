@@ -31,7 +31,7 @@ from dotbot.models import (
     MAX_POSITION_HISTORY_SIZE,
     DotBotBackgroundMapModel,
     DotBotConnectionModel,
-    DotBotMapSizeModel,
+    DotBotBoundsModel,
     DotBotModel,
     DotBotMoveRawCommandModel,
     DotBotNotificationCommand,
@@ -283,15 +283,15 @@ async def dotbots(query: Annotated[DotBotQueryModel, Query()]):
 
 
 @api.get(
-    path="/controller/map_size",
-    response_model=DotBotMapSizeModel,
+    path="/controller/bounds",
+    response_model=List[DotBotBoundsModel],
     response_model_exclude_none=True,
-    summary="Return the map size of the controller",
+    summary="Return the active bounds of the controller, in frame millimetres",
     tags=["controller"],
 )
-async def map_size():
-    """Map size HTTP GET handler."""
-    return api.controller.map_size
+async def bounds():
+    """Active bounds HTTP GET handler."""
+    return [DotBotBoundsModel(**b.as_dict()) for b in api.controller.bounds]
 
 
 @api.get(

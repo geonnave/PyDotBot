@@ -18,15 +18,16 @@ import serial
 import toml
 
 from dotbot import (
+    BOUNDS_DEFAULT,
     CONTROLLER_HTTP_HOST_DEFAULT,
     CONTROLLER_HTTP_PORT_DEFAULT,
     GATEWAY_ADDRESS_DEFAULT,
-    MAP_SIZE_DEFAULT,
     MRTA_URL_DEFAULT,
     SIMULATOR_INIT_STATE_DEFAULT,
     SWARMIT_URL_DEFAULT,
     pydotbot_version,
 )
+from dotbot.bounds import NAMED_BOUNDS_DEFAULT, Bounds
 from dotbot.cli._cfg import from_config
 from dotbot.cli._conn import ConnError, needs_swarm_id, parse_connection
 from dotbot.controller import Controller, ControllerSettings
@@ -44,6 +45,44 @@ _LEGACY_TOML_KEYS = {
     "port",
     "baudrate",
 }
+
+
+def _named_bounds(config) -> dict:
+    """The `[bounds.<name>]` tables of the loaded config, else the defaults."""
+    tables = getattr(config, "bounds", None) or {}
+    if not tables:
+        return dict(NAMED_BOUNDS_DEFAULT)
+    return {
+        name: Bounds(
+            x=table.x,
+            y=table.y,
+            w=table.w,
+            h=table.h,
+            name=name,
+            walls=tuple(table.walls),
+        )
+        for name, table in tables.items()
+    }
+
+
+def _resolve_controller_key(key, flag, config, default):
+    """One `[run.controller]` key with the layer it came from.
+
+    Explicit flag, then the environment, then the config table, then the
+    built-in default. The top-level config is deliberately not consulted:
+    `bounds` there is the table of named rectangles, not a selection.
+    """
+    if flag is not None:
+        return flag, "the command line"
+    env_name = f"DOTBOT_RUN_CONTROLLER_{key.upper()}"
+    raw = os.environ.get(env_name)
+    if raw is not None:
+        return ([raw] if isinstance(default, str) else raw), env_name
+    section = getattr(getattr(config, "run", None), "controller", None)
+    value = getattr(section, key, None)
+    if value is not None:
+        return ([value] if isinstance(default, str) else value), "the config file"
+    return ([default] if isinstance(default, str) else default), "the default"
 
 
 def _conn_to_settings(conn, swarm_id, sim_is_dotbot):
@@ -208,20 +247,34 @@ def _maybe_scaffold_sim_state(explicit_init_state):
     help="Path to a .toml configuration file.",
 )
 @click.option(
-    "-m",
-    "--map-size",
+    "--bounds",
+    "bounds",
     type=str,
-    help=f"Map size in mm. Defaults to '{MAP_SIZE_DEFAULT}'",
+    multiple=True,
+    help=(
+        "The rectangle of the frame in use this session: a name from the "
+        "config's [bounds.*] tables, a '+'-joined composite, or x,y,w,h in "
+        f"mm. Repeat for a set. Defaults to '{BOUNDS_DEFAULT}'."
+    ),
+)
+@click.option(
+    "--calibration",
+    type=str,
+    help=(
+        "The LH2 calibration this session runs on: a file path or the id "
+        "prefix of a file under ~/.dotbot/calibrations/<frame>/. With none "
+        "given, no calibration is loaded and robots keep whatever they hold."
+    ),
 )
 @click.option(
     "-M",
     "--background-map",
     type=click.Path(exists=True, dir_okay=False),
     help=(
-        f"Path to a background map image file in png format. The image should"
+        "Path to a background map image file in png format. The image should"
         "be a top-down view of the environment, with 1024 pixels width and a "
-        "height proportional to the real map size. The map size should be set "
-        f"with the --map-size option (default: {MAP_SIZE_DEFAULT})."
+        "height proportional to the active bounds, which are set with the "
+        "--bounds option."
     ),
 )
 @click.option(
@@ -265,7 +318,8 @@ def main(
     gw_address,
     controller_http_port,
     controller_http_host,
-    map_size,
+    bounds,
+    calibration,
     background_map,
     simulator_init_state,
     swarmit_url,
@@ -296,6 +350,21 @@ def main(
     swarm_id = from_config(ctx, "swarm_id", "swarm_id", "run")
     swarmit_url = from_config(ctx, "swarmit_url", "swarmit_url", "run.controller")
     mrta_url = from_config(ctx, "mrta_url", "mrta_url", "run.controller")
+
+    unified = (ctx.obj or {}).get("config")
+    named_bounds = _named_bounds(unified)
+    bounds, bounds_source = _resolve_controller_key(
+        "bounds", list(bounds) or None, unified, BOUNDS_DEFAULT
+    )
+    calibration, calibration_source = _resolve_controller_key(
+        "calibration", calibration, unified, None
+    )
+    print(f"Bounds: {' '.join(bounds)} (from {bounds_source})")
+    print(
+        f"Calibration: {calibration} (from {calibration_source})"
+        if calibration
+        else "Calibration: none selected"
+    )
 
     conn = conn if conn is not None else file_data.get("conn")
     swarm_id = swarm_id if swarm_id is not None else file_data.get("swarm_id")
@@ -329,7 +398,9 @@ def main(
         "gw_address": gw_address,
         "controller_http_port": controller_http_port,
         "controller_http_host": controller_http_host,
-        "map_size": map_size,
+        "bounds": tuple(bounds),
+        "named_bounds": named_bounds,
+        "calibration": calibration,
         "background_map": background_map,
         "simulator_init_state": simulator_init_state,
         "swarmit_url": swarmit_url,

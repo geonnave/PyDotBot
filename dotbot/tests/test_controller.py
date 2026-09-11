@@ -1,6 +1,7 @@
 """Test module for controller base class."""
 
 import asyncio
+import pathlib
 import time
 from unittest.mock import MagicMock
 
@@ -20,6 +21,18 @@ from dotbot.models import (
     DotBotStatus,
 )
 from dotbot.protocol import ApplicationType, ControlModeType, PayloadControlMode
+
+
+@pytest.fixture
+def serial_mock(monkeypatch):
+    """Stub the serial port so a Controller can be built without hardware."""
+    monkeypatch.setattr(
+        "dotbot_utils.serial_interface.serial.Serial.write", MagicMock()
+    )
+    monkeypatch.setattr("dotbot_utils.serial_interface.serial.Serial.open", MagicMock())
+    monkeypatch.setattr(
+        "dotbot_utils.serial_interface.serial.Serial.flush", MagicMock()
+    )
 
 
 @pytest.fixture
@@ -284,3 +297,86 @@ def test_addr_to_hex_is_uppercase_and_padded(addr, expected):
     """
     assert addr_to_hex(addr) == expected
     assert addr_to_hex(addr) == addr_to_hex(addr).upper()
+
+
+def _write_calibration(tmp_path, monkeypatch):
+    """Save a solved calibration under tmp_path and return its id."""
+    import sys
+
+    from dotbot.calibration import lighthouse2
+
+    sys.path.insert(0, str(pathlib.Path(__file__).parent))
+    import test_calibration_lighthouse2 as helpers
+
+    monkeypatch.setattr(lighthouse2, "CALIBRATION_DIR", tmp_path)
+    corners = [(-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25)]
+    manager = lighthouse2.LighthouseManager(
+        placements=[helpers._consistent_placement(corners, reads=3)]
+    )
+    manager.solve()
+    path = manager.save_calibration()
+    return lighthouse2.read_calibration_file(path)
+
+
+def test_controller_loads_the_calibration_named_by_id(tmp_path, monkeypatch, serial_mock):
+    """An id prefix resolves under calibrations/<frame>/, never the newest file."""
+    import numpy as np
+
+    from dotbot.calibration.wire import unpack_payload
+    from dotbot.controller import load_calibration
+
+    written = _write_calibration(tmp_path, monkeypatch)
+    settings = ControllerSettings(
+        port="/dev/null", baudrate=115200, network_id="0", gw_address="78",
+        calibration=written.id8,
+    )
+    controller = Controller(settings)
+
+    assert controller.lh2_calibration
+    assert controller.calibration.frame.name == "inria-aio-c"
+    assert (
+        load_calibration(written.id8).path
+        == tmp_path / "calibrations" / "inria-aio-c" / written.path.name
+    )
+
+    from dotbot.calibration.lighthouse2 import homography_as_bytes
+
+    pushed = bytes([len(controller.lh2_calibration)]) + b"".join(
+        homography_as_bytes(s.matrix) for s in controller.lh2_calibration
+    )
+    # The int32 shim quantises each element to a thousandth.
+    assert np.allclose(
+        [
+            [v / 1e3 for v in row]
+            for row in [
+                [
+                    int.from_bytes(pushed[1 + i * 4 : 5 + i * 4], "little", signed=True)
+                    for i in range(9)
+                ][j : j + 3]
+                for j in (0, 3, 6)
+            ]
+        ],
+        written.stations[0].homography,
+        atol=1e-3,
+    )
+    assert len(unpack_payload(bytes([1]) + b"\x00" * 36)) == 1
+
+
+def test_controller_with_no_calibration_loads_nothing(serial_mock):
+    """No --calibration and no config key: nothing is loaded, and it is said."""
+    settings = ControllerSettings(
+        port="/dev/null", baudrate=115200, network_id="0", gw_address="78"
+    )
+    controller = Controller(settings)
+    assert controller.lh2_calibration == []
+    assert controller.calibration is None
+
+
+def test_controller_resolves_its_active_bounds(serial_mock):
+    settings = ControllerSettings(
+        port="/dev/null", baudrate=115200, network_id="0", gw_address="78",
+        bounds=("annex", "wing"),
+    )
+    controller = Controller(settings)
+    assert [b.name for b in controller.bounds] == ["annex", "wing"]
+    assert controller.bounds[0].as_dict() == {"x": 0, "y": 2000, "w": 2000, "h": 2000}

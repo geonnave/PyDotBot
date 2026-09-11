@@ -4,9 +4,10 @@
 """Tests for the over-the-air LH2 capture decoding + collection logic.
 
 These exercise our host-side orchestration (payload decode, trigger/wait/
-retry) with a fake client. They are NOT a substitute for hardware-in-the-
-loop validation of the actual swarmit transport - the fake stands in only
-for the SwarmitClient surface, never for Mari/MQTT/serial behavior.
+retry, per-station accumulation) with a fake client. They are NOT a
+substitute for hardware-in-the-loop validation of the actual swarmit
+transport - the fake stands in only for the SwarmitClient surface, never for
+Mari/MQTT/serial behavior.
 """
 
 import threading
@@ -14,6 +15,7 @@ import threading
 from dotbot.calibration.ota import (
     CaptureSession,
     parse_capture_payload,
+    samples_from_reads,
 )
 
 _TAG = 0xCA
@@ -75,8 +77,10 @@ class _FakeClient:
         self._device = device.upper()
         self._records = records
         self._triggered = threading.Event()
+        self.triggers = 0
 
     def request_lh2_capture(self, device: str) -> None:
+        self.triggers += 1
         self._triggered.set()
 
     def watch_log_events(self):
@@ -92,9 +96,10 @@ class _FakeClient:
 def test_capture_session_returns_triggered_sample():
     client = _FakeClient("ABCD", _record(0, 111, 222))
     with CaptureSession(client, "abcd", _TAG) as session:
-        sample = session.capture(lh_index=0, timeout=2.0, retries=2)
-    assert sample.lh_index == 0
-    assert (sample.count1, sample.count2) == (111, 222)
+        samples = session.capture(timeout=2.0, retries=2)
+    assert len(samples) == 1
+    assert samples[0].lh_index == 0
+    assert (samples[0].count1, samples[0].count2) == (111, 222)
 
 
 def test_capture_session_ignores_other_devices():
@@ -102,8 +107,40 @@ def test_capture_session_ignores_other_devices():
     client = _FakeClient("FFFF", _record(0, 1, 2))
     with CaptureSession(client, "ABCD", _TAG) as session:
         try:
-            session.capture(lh_index=0, timeout=0.3, retries=0)
+            session.capture(timeout=0.3, retries=0)
         except TimeoutError:
             pass
         else:
             raise AssertionError("expected TimeoutError for mismatched addr")
+
+
+def test_a_two_station_capture_payload_yields_two_samples():
+    """Every visible station's records are kept, which is the seam evidence."""
+    client = _FakeClient("ABCD", _record(0, 111, 222) + _record(1, 333, 444))
+    with CaptureSession(client, "ABCD", _TAG) as session:
+        samples = session.capture_point(point=0, reads=1, timeout=2.0, retries=0)
+
+    assert [s.station for s in samples] == [0, 1]
+    assert [s.point for s in samples] == [0, 0]
+    assert samples[0].count1 == [111] and samples[0].count2 == [222]
+    assert samples[1].count1 == [333] and samples[1].count2 == [444]
+
+
+def test_n_reads_accumulate_per_station():
+    client = _FakeClient("ABCD", _record(0, 10, 20) + _record(1, 30, 40))
+    with CaptureSession(client, "ABCD", _TAG) as session:
+        samples = session.capture_point(point=2, reads=5, timeout=2.0, retries=0)
+
+    assert client.triggers == 5
+    assert [s.reads for s in samples] == [5, 5]
+    assert all(s.point == 2 for s in samples)
+    assert samples[0].mean_counts().count1 == 10.0
+
+
+def test_samples_from_reads_tolerates_a_station_a_capture_missed():
+    reads = [
+        parse_capture_payload(_payload(_record(0, 1, 2), _record(1, 3, 4)), _TAG),
+        parse_capture_payload(_payload(_record(0, 5, 6)), _TAG),
+    ]
+    samples = samples_from_reads(reads, point=1)
+    assert {s.station: s.reads for s in samples} == {0: 2, 1: 1}

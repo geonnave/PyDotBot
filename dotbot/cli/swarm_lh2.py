@@ -4,29 +4,27 @@
 """`dotbot swarm lh2-calibration` - over-the-air LH2 calibration.
 
 The fleet-side home for LH2 calibration: capture and send a calibration
-without a serial cable, driving a single DotBot through the swarmit
-transport. Two subcommands:
+without a serial cable, driving DotBots through the swarmit transport. Two
+subcommands:
 
-- `collect` - walk one DotBot through the 4 arena corners, trigger a
-              raw-count capture per corner over the air, solve the
-              homography, and save the calibration under
-              ~/.dotbot/calibrations/.
-- `push <path>` - send a saved calibration to the DotBot over the air. A thin
-              forward to swarmit's `calibrate-lh2`, which picks the payload
-              format (legacy `.out` or `calibration-*.toml`) by extension.
+- `collect` - walk the robots through a placement's points, trigger a
+              raw-count capture per point over the air, solve every visible
+              station by least squares, and save a schema 2 calibration
+              under ~/.dotbot/calibrations/<frame>/.
+- `push <path|id>` - send a saved calibration to the robots over the air.
 
-The homography solve lives in PyDotBot (`dotbot.calibration.lighthouse2`); the
-transport lives in swarmit. `collect` therefore runs natively here, while
-`push` is pure transport and reuses swarmit's own command.
+The homography solve lives in PyDotBot (`dotbot.calibration.lighthouse2`);
+the transport lives in swarmit.
 
-Serial-cable (single DK) calibration and the C-header `apply` export stay
-under `dotbot run lh2-calibration`.
+Serial-cable (single DK) calibration stays under
+`dotbot run lh2-calibration`.
 
 Calibration runtime deps (`opencv-python`) live behind the `[calibrate]`
 extra; ImportError at invocation prints an install hint instead of a
 traceback.
 """
 
+import datetime
 import sys
 import time
 
@@ -77,9 +75,31 @@ def _build_swarmit_client(ctx, conn, swarm_id, device):
     return build_client(settings)
 
 
+def _bounds_registry(ctx):
+    """The named bounds this session resolves `--points` against."""
+    from dotbot.bounds import NAMED_BOUNDS_DEFAULT, Bounds, BoundsRegistry
+
+    tables = getattr((ctx.obj or {}).get("config"), "bounds", None) or {}
+    if not tables:
+        return BoundsRegistry()
+    return BoundsRegistry(
+        named={
+            name: Bounds(
+                x=table.x,
+                y=table.y,
+                w=table.w,
+                h=table.h,
+                name=name,
+                walls=tuple(table.walls),
+            )
+            for name, table in tables.items()
+        }
+    )
+
+
 @click.group(
     name="lh2-calibration",
-    help="Over-the-air LH2 calibration for one DotBot: collect, push.",
+    help="Over-the-air LH2 calibration: collect, push.",
 )
 def cmd() -> None:
     pass
@@ -88,9 +108,9 @@ def cmd() -> None:
 @cmd.command(
     name="collect",
     help=(
-        "Collect LH2 calibration from one DotBot over the air (no serial "
-        "cable). Walks you through the 4 arena corners, triggers a capture "
-        "per corner via swarmit, solves the homography, and saves the "
+        "Collect an LH2 calibration over the air (no serial cable). Walks "
+        "you through the points of one placement, triggers n captures per "
+        "point via swarmit, solves every visible station, and saves the "
         "calibration."
     ),
 )
@@ -118,13 +138,28 @@ def cmd() -> None:
     help="Swarm id in hex (required for an MQTT broker connection).",
 )
 @click.option(
-    "-d",
-    "--distance",
+    "--points",
+    "points",
+    multiple=True,
+    help=(
+        "Where this placement's points are, repeatable: `x,y` in frame mm, a "
+        "bounds name (its centre), `<bounds>:<corner>`, or `<bounds>:corners` "
+        "for all four in capture order. Defaults to `arena:corners`."
+    ),
+)
+@click.option(
+    "--frame",
+    "frame_name",
+    default=None,
+    help="Frame the points are expressed in. Defaults to the package frame.",
+)
+@click.option(
+    "--reads",
     default=None,
     type=int,
     help=(
-        "Distance between reference corners in millimeters "
-        "(default: the calibration package default)."
+        "Captures averaged per point. A single read costs about 60 % of the "
+        "accuracy at every point of the field."
     ),
 )
 @click.option(
@@ -137,49 +172,79 @@ def cmd() -> None:
     "--retries",
     default=None,
     type=int,
-    help="Re-trigger this many times per corner before giving up.",
+    help="Re-trigger this many times per capture before giving up.",
 )
 @click.option(
     "--tag",
     default=None,
     help=(
-        'Optional arena/setup label (e.g. "office-2x2m") added to the saved '
-        "filename and metadata, so calibrations stay self-describing."
+        'Optional session label (e.g. "arena-relay") added to the saved '
+        "metadata, so calibrations stay self-describing."
     ),
 )
 @click.option(
     "--push",
     is_flag=True,
-    help="Send the computed calibration back to the DotBot over the air.",
+    help="Send the computed calibration back to the robots over the air.",
 )
 @click.pass_context
-def _collect(ctx, device, conn, swarm_id, distance, timeout, retries, tag, push):
+def _collect(
+    ctx,
+    device,
+    conn,
+    swarm_id,
+    points,
+    frame_name,
+    reads,
+    timeout,
+    retries,
+    tag,
+    push,
+):
     try:
         from swarmit.testbed.protocol import LH2_CALIB_TAG
 
         from dotbot.calibration.lighthouse2 import (
-            CALIBRATION_DISTANCE_DEFAULT,
+            Frame,
             LighthouseManager,
+            Placement,
+            read_calibration_file,
         )
         from dotbot.calibration.ota import (
+            CAPTURE_READS_DEFAULT,
             CAPTURE_RETRIES_DEFAULT,
             CAPTURE_TIMEOUT_DEFAULT,
-            CORNERS,
             CaptureSession,
         )
+        from dotbot.calibration.points import resolve_placement_points
+        from dotbot.calibration.wire import calibration_payload
     except ImportError as exc:
         click.echo(
             "`dotbot swarm lh2-calibration collect` needs the calibration "
             "runtime deps (opencv-python).\n"
-            "Install with:  pip install dotbot[calibrate]",
+            "Install with:  pip install pydotbot[calibrate]",
             err=True,
         )
         click.echo(f"(import error was: {exc})", err=True)
         sys.exit(1)
 
-    distance = distance if distance is not None else CALIBRATION_DISTANCE_DEFAULT
+    reads = reads if reads is not None else CAPTURE_READS_DEFAULT
     timeout = timeout if timeout is not None else CAPTURE_TIMEOUT_DEFAULT
     retries = retries if retries is not None else CAPTURE_RETRIES_DEFAULT
+    specs = list(points) or ["arena:corners"]
+
+    try:
+        points_mm = resolve_placement_points(specs, _bounds_registry(ctx))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if len(points_mm) < 4:
+        raise click.ClickException(
+            f"a homography needs at least 4 points, --points resolved to "
+            f"{len(points_mm)}. Span the area you will drive in."
+        )
+
+    frame = Frame(name=frame_name) if frame_name else Frame()
+    placement = Placement(index=0, at=" ".join(specs), points_mm=points_mm)
 
     try:
         client = _build_swarmit_client(ctx, conn, swarm_id, device)
@@ -189,79 +254,98 @@ def _collect(ctx, device, conn, swarm_id, distance, timeout, retries, tag, push)
         click.echo(f"Could not reach the swarm: {exc}", err=True)
         sys.exit(1)
 
-    samples = []
     with client:
         with CaptureSession(client, device, LH2_CALIB_TAG) as session:
             # Give the transport's own connect/subscribe log lines a beat to
             # print before our prompts, so the two don't interleave on screen.
             time.sleep(0.2)
             click.echo(
-                f"\nCollecting LH2 calibration from {device.upper()}.\n"
-                "Stop the DotBot's app first (capture only runs in READY).\n"
+                f"\nCollecting LH2 calibration from {device.upper()} in frame "
+                f"{frame.name}.\n"
+                "Stop the robot's app first (capture only runs in READY).\n"
+                f"{len(points_mm)} point(s), {reads} reads each, in the order "
+                "listed.\n"
             )
-            for corner in CORNERS:
+            for index, (x, y) in enumerate(points_mm):
                 click.prompt(
-                    f"Place the DotBot at the {corner} corner, then press Enter",
+                    f"  point {index}: put a photodiode on ({x:g}, {y:g}) mm, "
+                    "then press Enter",
                     default="",
                     show_default=False,
                     prompt_suffix="",
                 )
                 try:
-                    sample = session.capture(
-                        lh_index=0,
+                    samples = session.capture_point(
+                        point=index,
+                        reads=reads,
                         timeout=timeout,
                         retries=retries,
-                        on_attempt=lambda n, total: click.echo(
-                            f"  triggering capture (attempt {n}/{total}), "
-                            f"waiting up to {timeout:g}s..."
-                        ),
                     )
                 except TimeoutError as exc:
                     click.echo(f"  ! {exc}", err=True)
                     raise click.Abort()
-                samples.append(sample)
-                click.echo(
-                    f"  captured {corner}: "
-                    f"count1={sample.count1} count2={sample.count2}"
-                )
+                placement.samples.extend(samples)
+                for sample in samples:
+                    counts = sample.mean_counts()
+                    click.echo(
+                        f"    station {sample.station}: {sample.reads} reads, "
+                        f"mean count1={counts.count1:.1f} count2={counts.count2:.1f}"
+                    )
 
-        manager = LighthouseManager(calibration_distance=distance, extra_lh_num=0)
+        placement.captured_at = datetime.datetime.now(
+            datetime.timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        manager = LighthouseManager(placements=[placement], frame=frame)
         try:
-            manager.compute_calibration(samples)
+            stations = manager.solve()
         except Exception as exc:
             click.echo(f"Failed to compute calibration: {exc}", err=True)
             sys.exit(1)
+        for station in stations:
+            click.echo(
+                f"station {station.index}: {station.points} points, "
+                f"residual {station.residual_mm:.3f} mm"
+            )
+        for index, seen in manager.unsolved_stations:
+            click.echo(
+                f"station {index}: seen at {seen} point(s), not solved "
+                "(a homography needs 4)"
+            )
         path = manager.save_calibration(tag=tag)
+        calibration = read_calibration_file(path)
         click.echo(f"\nCalibration saved to {path}")
+        click.echo(f"Calibration id {calibration.id}, frame {frame.name}")
 
         if push:
-            payload = manager.calibration_output_path.read_bytes()
-            client.send_lh2_calibration(payload)
-            click.echo("Sent the calibration to the DotBot over the air.")
+            client.send_lh2_calibration(calibration_payload(calibration.stations))
+            click.echo("Sent the calibration to the robots over the air.")
         else:
             click.echo(
-                "To send it to the DotBot over the air:\n"
-                f"  dotbot swarm lh2-calibration push {path}"
+                "To send it to the robots over the air:\n"
+                f"  dotbot swarm lh2-calibration push {calibration.id8}"
             )
 
 
 @cmd.command(
     name="push",
     help=(
-        "Send a saved LH2 calibration to the DotBot over the air. Forwards to "
-        "swarmit's `calibrate-lh2`, which picks the payload format (legacy "
-        "`.out` or `calibration-*.toml`) by file extension."
+        "Send a saved LH2 calibration to the robots over the air. Takes a "
+        "file path or the id prefix of a file under "
+        "~/.dotbot/calibrations/<frame>/."
     ),
 )
-@click.argument(
-    "path",
-    type=click.Path(exists=True, dir_okay=False),
-)
+@click.argument("calibration")
 @click.pass_context
-def _push(ctx, path):
+def _push(ctx, calibration):
+    from dotbot.calibration.lighthouse2 import resolve_calibration_path
     from dotbot.cli._swarm_inject import inject_config
     from dotbot.cli.swarm import _load_swarmit_group, _run_swarmit
 
+    try:
+        path = resolve_calibration_path(calibration)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
     swarmit_group = _load_swarmit_group()
-    final = inject_config(["calibrate-lh2", path], ctx.obj)
+    final = inject_config(["calibrate-lh2", str(path)], ctx.obj)
     _run_swarmit(swarmit_group, final)
