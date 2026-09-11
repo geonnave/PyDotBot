@@ -1,7 +1,7 @@
 import axios from 'axios';
 import logger from './logger';
 
-import { DotBot, Bounds, BackgroundMap, MoveRawData, RgbLedData, LH2Position, GpsPosition } from '../types';
+import { DotBot, Area, Site, BackgroundMap, MoveRawData, RgbLedData, LH2Position, GpsPosition } from '../types';
 
 const log = logger.child({ module: 'Rest' });
 
@@ -14,10 +14,17 @@ export const apiFetchDotbots = async (): Promise<DotBot[]> => {
   ).then(res => res.data);
 };
 
-export const apiFetchBounds = async (): Promise<Bounds[]> => {
-  log.info("Fetching bounds from API");
-  return await axios.get<Bounds[]>(
-    `${API_URL}/controller/bounds`,
+export const apiFetchArea = async (): Promise<Area[]> => {
+  log.info("Fetching the active area set from API");
+  return await axios.get<Area[]>(
+    `${API_URL}/controller/area`,
+  ).then(res => res.data);
+};
+
+export const apiFetchSite = async (): Promise<Site> => {
+  log.info("Fetching the site from API");
+  return await axios.get<Site>(
+    `${API_URL}/controller/site`,
   ).then(res => res.data);
 };
 

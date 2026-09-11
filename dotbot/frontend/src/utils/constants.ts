@@ -20,7 +20,7 @@ export const NotificationType = {
 
 export const RequestType = {
   DotBots: 0,
-  Bounds: 1,
+  Area: 1,
 } as const;
 
 export const inactiveAddress = "0000000000000000";

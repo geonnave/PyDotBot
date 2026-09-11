@@ -24,7 +24,8 @@ const MockWebSocket = Object.assign(
 
 vi.mock('./utils/rest', () => ({
   apiFetchDotbots: vi.fn(),
-  apiFetchBounds: vi.fn(),
+  apiFetchArea: vi.fn(),
+  apiFetchSite: vi.fn(),
   apiFetchBackgroundMap: vi.fn(),
   apiUpdateMoveRaw: vi.fn(),
   apiUpdateRgbLed: vi.fn(),
@@ -55,7 +56,8 @@ vi.mock('./DotBots', () => ({
 
 import {
   apiFetchDotbots,
-  apiFetchBounds,
+  apiFetchArea,
+  apiFetchSite,
   apiFetchBackgroundMap,
   apiUpdateMoveRaw,
   apiUpdateRgbLed,
@@ -67,7 +69,8 @@ import { NotificationType } from './utils/constants';
 import RestApp from './RestApp';
 
 const mockedFetchDotbots = vi.mocked(apiFetchDotbots);
-const mockedFetchBounds = vi.mocked(apiFetchBounds);
+const mockedFetchArea = vi.mocked(apiFetchArea);
+const mockedFetchSite = vi.mocked(apiFetchSite);
 const mockedFetchBackgroundMap = vi.mocked(apiFetchBackgroundMap);
 const mockedUpdateMoveRaw = vi.mocked(apiUpdateMoveRaw);
 const mockedUpdateRgbLed = vi.mocked(apiUpdateRgbLed);
@@ -75,7 +78,13 @@ const mockedUpdateWaypoints = vi.mocked(apiUpdateWaypoints);
 const mockedClearPositionsHistory = vi.mocked(apiClearPositionsHistory);
 const mockedHandleDotBotUpdate = vi.mocked(handleDotBotUpdate);
 
-const bounds = [{ x: 0, y: 0, w: 4000, h: 4000 }];
+const areas = [{ x: 0, y: 0, w: 2000, h: 2000, name: 'arena' }];
+const site = {
+  name: 'c405-arena',
+  anchor: 'the arena top-left corner',
+  extent_mm: [2000, 4000] as [number, number],
+  areas,
+};
 const backgroundMap = { data: 'base64png' };
 const dotbot = {
   address: 'aabbccddeeff',
@@ -94,7 +103,8 @@ beforeEach(() => {
   vi.stubGlobal('WebSocket', MockWebSocket);
   vi.clearAllMocks();
   capturedPublishCommand = async () => {};
-  mockedFetchBounds.mockResolvedValue(bounds);
+  mockedFetchArea.mockResolvedValue(areas);
+  mockedFetchSite.mockResolvedValue(site);
   mockedFetchBackgroundMap.mockResolvedValue(backgroundMap);
   mockedFetchDotbots.mockResolvedValue([dotbot]);
   mockedUpdateMoveRaw.mockResolvedValue(undefined);
@@ -110,9 +120,10 @@ afterEach(() => {
 
 // ─── Mount behaviour ────────────────────────────────────────────────────────
 
-test('RestApp fetches bounds and backgroundMap on mount', async () => {
+test('RestApp fetches the area set, the site and backgroundMap on mount', async () => {
   render(<RestApp />);
-  await waitFor(() => expect(mockedFetchBounds).toHaveBeenCalledOnce());
+  await waitFor(() => expect(mockedFetchArea).toHaveBeenCalledOnce());
+  await waitFor(() => expect(mockedFetchSite).toHaveBeenCalledOnce());
   await waitFor(() => expect(mockedFetchBackgroundMap).toHaveBeenCalledOnce());
 });
 
@@ -121,8 +132,8 @@ test('RestApp fetches dotbots on mount as connection health check', async () => 
   await waitFor(() => expect(mockedFetchDotbots).toHaveBeenCalled());
 });
 
-test('RestApp renders nothing until bounds resolve', () => {
-  mockedFetchBounds.mockImplementation(() => new Promise(() => {})); // never resolves
+test('RestApp renders nothing until the area set resolves', () => {
+  mockedFetchArea.mockImplementation(() => new Promise(() => {})); // never resolves
   render(<RestApp />);
   expect(screen.queryByTestId('dotbots')).not.toBeInTheDocument();
 });
@@ -140,7 +151,7 @@ test('RestApp probes qrkey on localhost', async () => {
   );
 });
 
-test('RestApp renders DotBots after bounds resolve', async () => {
+test('RestApp renders DotBots after the area set resolves', async () => {
   render(<RestApp />);
   await waitFor(() => expect(screen.getByTestId('dotbots')).toBeInTheDocument());
 });

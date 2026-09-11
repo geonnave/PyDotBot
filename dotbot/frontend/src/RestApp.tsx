@@ -4,7 +4,8 @@ import { handleDotBotUpdate } from "./utils/helpers";
 
 import {
   apiFetchDotbots,
-  apiFetchBounds,
+  apiFetchArea,
+  apiFetchSite,
   apiFetchBackgroundMap,
   apiUpdateMoveRaw,
   apiUpdateRgbLed,
@@ -12,21 +13,15 @@ import {
   apiClearPositionsHistory,
 } from "./utils/rest";
 import DotBots from './DotBots';
-import { Bounds, BackgroundMap, DotBot, CommandData, MoveRawData, RgbLedData, WaypointsData, WsMessage } from "./types";
+import { Area, BackgroundMap, DotBot, CommandData, MoveRawData, RgbLedData, Site, WaypointsData, WsMessage } from "./types";
+import { siteViewport } from "./utils/frame";
 
 import logger from './utils/logger';
 const log = logger.child({ module: 'RestApp' });
 
-function unionBounds(list: Bounds[]): Bounds {
-  const x = Math.min(...list.map(b => b.x));
-  const y = Math.min(...list.map(b => b.y));
-  const xMax = Math.max(...list.map(b => b.x + b.w));
-  const yMax = Math.max(...list.map(b => b.y + b.h));
-  return { x, y, w: xMax - x, h: yMax - y };
-}
-
 const RestApp: React.FC = () => {
-  const [bounds, setBounds] = useState<Bounds | undefined>(undefined);
+  const [activeAreas, setActiveAreas] = useState<Area[] | undefined>(undefined);
+  const [site, setSite] = useState<Site | undefined>(undefined);
   const [backgroundMap, setBackgroundMap] = useState<BackgroundMap | undefined>(undefined);
   const [dotbots, setDotbots] = useState<DotBot[]>([]);
   const [qrkeyAvailable, setQrkeyAvailable] = useState<boolean>(false);
@@ -66,11 +61,15 @@ const RestApp: React.FC = () => {
     if (data) setDotbots(data);
   }, [setDotbots]);
 
-  const fetchBounds = useCallback(async () => {
-    const data = await apiFetchBounds().catch(error => console.log(error));
-    // The classic map draws one box, so an active set is drawn over its union.
-    if (data && data.length > 0) setBounds(unionBounds(data));
-  }, [setBounds]);
+  const fetchArea = useCallback(async () => {
+    const data = await apiFetchArea().catch(error => console.log(error));
+    if (data && data.length > 0) setActiveAreas(data);
+  }, [setActiveAreas]);
+
+  const fetchSite = useCallback(async () => {
+    const data = await apiFetchSite().catch(error => console.log(error));
+    if (data) setSite(data);
+  }, [setSite]);
 
   const fetchBackgroundMap = useCallback(async () => {
     const data = await apiFetchBackgroundMap().catch(error => console.log(error));
@@ -194,21 +193,26 @@ const RestApp: React.FC = () => {
     if (!dotbots) {
       fetchDotBots();
     }
-    if (!bounds) {
-      fetchBounds();
+    if (!activeAreas) {
+      fetchArea();
+    }
+    if (!site) {
+      fetchSite();
     }
     if (!backgroundMap) {
       fetchBackgroundMap();
     }
-  }, [dotbots, bounds, backgroundMap, fetchDotBots, fetchBounds, fetchBackgroundMap]);
+  }, [dotbots, activeAreas, site, backgroundMap, fetchDotBots, fetchArea, fetchSite, fetchBackgroundMap]);
 
   return (
     <>
-      {bounds && (
+      {activeAreas && (
         <div id="dotbots">
           <DotBots
             dotbots={dotbots}
-            bounds={bounds}
+            viewport={siteViewport(site, activeAreas, activeAreas[0])}
+            activeAreas={activeAreas}
+            siteAreas={site?.areas ?? []}
             backgroundMap={backgroundMap}
             updateDotbots={setDotbots}
             publishCommand={publishCommand}

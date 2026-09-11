@@ -6,7 +6,8 @@ import { handleDotBotUpdate } from "./utils/helpers";
 
 import DotBots from './DotBots';
 import QrKeyForm from './QrKeyForm';
-import { Bounds, DotBot, MqttData, WsMessage } from "./types";
+import { Area, DotBot, MqttData, WsMessage } from "./types";
+import { siteViewport } from "./utils/frame";
 
 import logger from './utils/logger';
 const log = logger.child({ module: 'QrKeyApp' });
@@ -14,7 +15,9 @@ const log = logger.child({ module: 'QrKeyApp' });
 const QrKeyApp: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState<QrKeyMessage | null>(null);
-  const [bounds, setBounds] = useState<Bounds>({ x: 0, y: 0, w: 2000, h: 2000 });
+  // The qrkey transport carries the active area set and no site, so the map
+  // draws that set with the same margin around it.
+  const [activeAreas, setActiveAreas] = useState<Area[]>([{ x: 0, y: 0, w: 2000, h: 2000 }]);
   const [dotbots, setDotbots] = useState<DotBot[]>([]);
 
   const [ready, clientId, mqttData, setMqttData, publish, publishCommand, sendRequest] = useQrKey({
@@ -31,8 +34,9 @@ const QrKeyApp: React.FC = () => {
     if (message.topic === `/reply/${clientId}`) {
       if (payload.request === RequestType.DotBots) {
         setDotbots(payload.data as DotBot[]);
-      } else if (payload.request === RequestType.Bounds) {
-        setBounds((payload.data as Bounds[])[0]);
+      } else if (payload.request === RequestType.Area) {
+        const list = payload.data as Area[];
+        if (list.length > 0) setActiveAreas(list);
       }
     } else if (message.topic === `/notify`) {
       if (payload.cmd === NotificationType.NewDotBot) {
@@ -46,12 +50,12 @@ const QrKeyApp: React.FC = () => {
       }
     }
     setMessage(null);
-  }, [clientId, dotbots, setDotbots, setBounds, sendRequest, message, setMessage]);
+  }, [clientId, dotbots, setDotbots, setActiveAreas, sendRequest, message, setMessage]);
 
   useEffect(() => {
     if (clientId) {
       setTimeout(sendRequest, 100, { request: RequestType.DotBots, reply: `${clientId}` });
-      setTimeout(sendRequest, 200, { request: RequestType.Bounds, reply: `${clientId}` });
+      setTimeout(sendRequest, 200, { request: RequestType.Area, reply: `${clientId}` });
     }
   }, [sendRequest, clientId]);
 
@@ -66,7 +70,9 @@ const QrKeyApp: React.FC = () => {
         <div id="dotbots">
           <DotBots
             dotbots={dotbots}
-            bounds={bounds}
+            viewport={siteViewport(undefined, activeAreas, activeAreas[0])}
+            activeAreas={activeAreas}
+            siteAreas={[]}
             updateDotbots={setDotbots}
             publishCommand={publishCommand}
             publish={publish}

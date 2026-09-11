@@ -2,7 +2,8 @@ import { vi } from 'vitest';
 import axios from 'axios';
 import {
   apiFetchDotbots,
-  apiFetchBounds,
+  apiFetchArea,
+  apiFetchSite,
   apiFetchBackgroundMap,
   apiUpdateMoveRaw,
   apiUpdateRgbLed,
@@ -37,20 +38,37 @@ describe('apiFetchDotbots', () => {
   });
 });
 
-// ─── apiFetchBounds ──────────────────────────────────────────────────────────
+// ─── apiFetchArea ────────────────────────────────────────────────────────────
 
-describe('apiFetchBounds', () => {
-  test('GET /controller/bounds and returns the active rectangles', async () => {
-    const bounds = [{ x: 0, y: 2000, w: 2000, h: 2000 }];
-    mockedGet.mockResolvedValueOnce({ data: bounds });
-    const result = await apiFetchBounds();
-    expect(mockedGet).toHaveBeenCalledWith(`${API_URL}/controller/bounds`);
-    expect(result).toEqual(bounds);
+describe('apiFetchArea', () => {
+  test('GET /controller/area and returns the active rectangles', async () => {
+    const areas = [{ x: 0, y: 2000, w: 2000, h: 2000, name: 'annex' }];
+    mockedGet.mockResolvedValueOnce({ data: areas });
+    const result = await apiFetchArea();
+    expect(mockedGet).toHaveBeenCalledWith(`${API_URL}/controller/area`);
+    expect(result).toEqual(areas);
   });
 
   test('propagates axios error', async () => {
     mockedGet.mockRejectedValueOnce(new Error('Network Error'));
-    await expect(apiFetchBounds()).rejects.toThrow('Network Error');
+    await expect(apiFetchArea()).rejects.toThrow('Network Error');
+  });
+});
+
+// ─── apiFetchSite ────────────────────────────────────────────────────────────
+
+describe('apiFetchSite', () => {
+  test('GET /controller/site and returns the site with its areas', async () => {
+    const site = {
+      name: 'c405-arena',
+      anchor: 'the arena top-left corner',
+      extent_mm: [2000, 4000],
+      areas: [{ x: 0, y: 0, w: 2000, h: 2000, name: 'arena' }],
+    };
+    mockedGet.mockResolvedValueOnce({ data: site });
+    const result = await apiFetchSite();
+    expect(mockedGet).toHaveBeenCalledWith(`${API_URL}/controller/site`);
+    expect(result).toEqual(site);
   });
 });
 
