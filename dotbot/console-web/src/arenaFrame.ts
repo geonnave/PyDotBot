@@ -1,22 +1,19 @@
-import type { LH2Position, MapSize } from "./types";
+import type { Bounds, LH2Position } from "./types";
 
-// The arena frame, and the single place the console states it.
+// The frame, and the single place the console states it.
 //
-// Origin is the top-left corner, x grows right, y grows down. That is the
-// frame the LH2 calibration builds: `dotbot swarm lh2-calibration collect`
-// walks the operator through the corners top-left, top-right, bottom-left,
-// bottom-right, and the homography maps the first of those to the smallest
-// (x, y). The control loop integrates odometry in the same frame, so a map
-// drawn any other way is a mirror of the room rather than a picture of it.
+// Origin is the frame's anchor, x grows right, y grows down. Every position
+// the console receives is in frame millimetres; the bounds say which part of
+// the frame is drawn, so the box origin is subtracted before scaling.
 
-/** Arena mm to a fraction of the map box, 0..1 from its top-left corner. */
-export function arenaToFraction(p: LH2Position, map: MapSize): { fx: number; fy: number } {
-  return { fx: p.x / map.width, fy: p.y / map.height };
+/** Frame mm to a fraction of the bounds box, 0..1 from its top-left corner. */
+export function arenaToFraction(p: LH2Position, b: Bounds): { fx: number; fy: number } {
+  return { fx: (p.x - b.x) / b.w, fy: (p.y - b.y) / b.h };
 }
 
-/** A fraction of the map box back to arena mm. */
-export function fractionToArena(fx: number, fy: number, map: MapSize): LH2Position {
-  return { x: fx * map.width, y: fy * map.height };
+/** A fraction of the bounds box back to frame mm. */
+export function fractionToArena(fx: number, fy: number, b: Bounds): LH2Position {
+  return { x: b.x + fx * b.w, y: b.y + fy * b.h };
 }
 
 /**

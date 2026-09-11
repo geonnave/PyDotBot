@@ -4,7 +4,7 @@ import { arenaToFraction, fractionToArena } from "./arenaFrame";
 import { BOT_GLYPH_BOX, BOT_GLYPH_SPAN, BotGlyph } from "./BotGlyph";
 import { ResetBadge, batteryColor, batteryPct, stateColor } from "./viewChrome";
 
-import { LH2Position, MapSize, UnifiedBot } from "./types";
+import { Bounds, LH2Position, UnifiedBot } from "./types";
 import { useSmoothPositions } from "./useSmoothPositions";
 
 // Layer set mirrors the v1 design (Battery Bars / Waypoints / HotSpots /
@@ -47,7 +47,7 @@ export function clampCam(cam: Camera, geom: ViewGeom): Camera {
 
 interface MapViewProps {
   bots: UnifiedBot[];
-  mapSize: MapSize;
+  bounds: Bounds;
   selection: Set<string>;
   layers: Layers;
   plannedMissions: { waypoints: LH2Position[]; led: string | null }[]; // local queues, not yet sent
@@ -74,7 +74,7 @@ export const MapView: React.FC<MapViewProps> = (props) => {
   const marqueeRef = useRef<{ additive: boolean } | null>(null);
   const geomRef = useRef<ViewGeom>({ w: 1000, h: 600, side: 600 });
 
-  const mapDiagonal = Math.hypot(props.mapSize.width, props.mapSize.height);
+  const mapDiagonal = Math.hypot(props.bounds.w, props.bounds.h);
   const smoothPositions = useSmoothPositions(props.bots, mapDiagonal);
 
   const [side, setSide] = useState(600);
@@ -102,7 +102,7 @@ export const MapView: React.FC<MapViewProps> = (props) => {
   }, []);
 
   const pctPos = (p: LH2Position) => {
-    const { fx, fy } = arenaToFraction(p, props.mapSize);
+    const { fx, fy } = arenaToFraction(p, props.bounds);
     return { left: fx * 100, top: fy * 100 };
   };
 
@@ -116,8 +116,9 @@ export const MapView: React.FC<MapViewProps> = (props) => {
     const uy = (clientY - cy - cam.ty) / cam.scale + r.height / 2;
     const ax = ux - (r.width - side) / 2;
     const ay = uy - (r.height - side) / 2;
-    const { x, y } = fractionToArena(ax / side, ay / side, props.mapSize);
-    if (x < 0 || y < 0 || x > props.mapSize.width || y > props.mapSize.height) return null;
+    const { x, y } = fractionToArena(ax / side, ay / side, props.bounds);
+    const { x: x0, y: y0, w, h } = props.bounds;
+    if (x < x0 || y < y0 || x > x0 + w || y > y0 + h) return null;
     return { x: Math.round(x), y: Math.round(y) };
   };
 
@@ -195,7 +196,7 @@ export const MapView: React.FC<MapViewProps> = (props) => {
 
   // Real-scale layer: glyphs scale to the actual DotBot footprint.
   const gscale = props.layers.trueScale
-    ? Math.max(0.2, (side * (REAL_BOT_MM / props.mapSize.width)) / BOT_GLYPH_SPAN)
+    ? Math.max(0.2, (side * (REAL_BOT_MM / props.bounds.w)) / BOT_GLYPH_SPAN)
     : 1;
 
   return (
@@ -253,7 +254,7 @@ export const MapView: React.FC<MapViewProps> = (props) => {
                     key={b.id}
                     points={b.trail
                       .map((p) => {
-                        const { fx, fy } = arenaToFraction(p, props.mapSize);
+                        const { fx, fy } = arenaToFraction(p, props.bounds);
                         return `${fx * side},${fy * side}`;
                       })
                       .join(" ")}

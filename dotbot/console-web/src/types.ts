@@ -147,9 +147,14 @@ export interface ControllerConnection {
   gw_address: string;
 }
 
-export interface MapSize {
-  width: number;
-  height: number;
+// GET /controller/bounds - one rectangle of the active bounds, in frame mm.
+// A bounds is a view of the frame and carries no calibration, so changing it
+// never touches one.
+export interface Bounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 // A waypoint mission queued locally but not yet sent: bound to the bots that

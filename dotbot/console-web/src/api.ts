@@ -1,7 +1,7 @@
 import {
+  Bounds,
   ControllerConnection,
   LH2Position,
-  MapSize,
   PyDotBot,
   RgbLed,
   SwarmitNode,
@@ -18,8 +18,8 @@ export async function fetchDotBots(): Promise<PyDotBot[]> {
   return res.json();
 }
 
-export async function fetchMapSize(): Promise<MapSize> {
-  const res = await fetch(`${CONTROLLER}/map_size`);
+export async function fetchBounds(): Promise<Bounds[]> {
+  const res = await fetch(`${CONTROLLER}/bounds`);
   return res.json();
 }
 

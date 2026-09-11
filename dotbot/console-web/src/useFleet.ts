@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { controllerWsUrl, fetchDotBots, fetchMapSize, fetchSwarmitStatus } from "./api";
+import { controllerWsUrl, fetchBounds, fetchDotBots, fetchSwarmitStatus } from "./api";
 import {
   BotState,
   LinkState,
-  MapSize,
+  Bounds,
   PyDotBot,
   STATE_ORDER,
   SwarmitNode,
@@ -85,15 +85,28 @@ export function merge(
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+// The console draws one box, so an active set of several rectangles is drawn
+// over their bounding box.
+const DEFAULT_BOUNDS: Bounds = { x: 0, y: 0, w: 2000, h: 2000 };
+
+function unionBounds(list: Bounds[]): Bounds {
+  if (list.length === 0) return DEFAULT_BOUNDS;
+  const x = Math.min(...list.map((b) => b.x));
+  const y = Math.min(...list.map((b) => b.y));
+  const xMax = Math.max(...list.map((b) => b.x + b.w));
+  const yMax = Math.max(...list.map((b) => b.y + b.h));
+  return { x, y, w: xMax - x, h: yMax - y };
+}
+
 export function useFleet(): {
   bots: UnifiedBot[];
-  mapSize: MapSize;
+  bounds: Bounds;
   wsUp: boolean;
 } {
   const pyRef = useRef<Record<string, PyDotBot>>({});
   const swRef = useRef<Record<string, SwarmitNode>>({});
   const [bots, setBots] = useState<UnifiedBot[]>([]);
-  const [mapSize, setMapSize] = useState<MapSize>({ width: 2000, height: 2000 });
+  const [bounds, setBounds] = useState<Bounds>(DEFAULT_BOUNDS);
   const [wsUp, setWsUp] = useState(false);
 
   const rebuild = useCallback(() => {
@@ -110,11 +123,11 @@ export function useFleet(): {
     }
   }, [rebuild]);
 
-  // Initial data + map size.
+  // Initial data + active bounds.
   useEffect(() => {
     reloadDotBots();
-    fetchMapSize()
-      .then(setMapSize)
+    fetchBounds()
+      .then((list) => setBounds(unionBounds(list)))
       .catch(() => {});
   }, [reloadDotBots]);
 
@@ -199,5 +212,5 @@ export function useFleet(): {
     return () => clearInterval(t);
   }, [rebuild]);
 
-  return { bots, mapSize, wsUp };
+  return { bots, bounds, wsUp };
 }
