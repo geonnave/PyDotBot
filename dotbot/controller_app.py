@@ -233,9 +233,9 @@ def _maybe_scaffold_sim_state(explicit_init_state):
     type=str,
     multiple=True,
     help=(
-        "The part of the site in use this session: an area name from the "
-        "config's [sites.<site>.areas.*] tables, a '+'-joined composite, or "
-        "x,y,w,h in mm. Repeat for a set. Defaults to the whole site."
+        "The areas shown at start (none means the whole site): an area name "
+        "from the config's [sites.<site>.areas.*] tables, a '+'-joined "
+        "composite, or x,y,w,h in mm. Repeat for more than one."
     ),
 )
 @click.option(
@@ -265,7 +265,7 @@ def _maybe_scaffold_sim_state(explicit_init_state):
     help=(
         "Path to a background map image file in png format. The image should"
         "be a top-down view of the environment, with 1024 pixels width and a "
-        "height proportional to the active area set, which is set with the "
+        "height proportional to the areas shown, which are set with the "
         "--area option."
     ),
 )

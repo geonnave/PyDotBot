@@ -175,6 +175,7 @@ class SiteSection(_Strict):
 class ControllerSection(_Strict):
     http_port: int | None = None
     http_host: str | None = None
+    # The areas shown at start (none means the whole site).
     area: str | None = None
     calibration: str | None = None
     background_map: str | None = None
