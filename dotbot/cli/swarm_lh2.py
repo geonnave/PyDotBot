@@ -33,8 +33,8 @@ import click
 from dotbot.cli._site import site_from_context
 
 
-def _build_swarmit_client(ctx, conn, swarm_id, device):
-    """Build a swarmit client targeting a single `device`.
+def _build_swarmit_client(ctx, conn, swarm_id, device=None):
+    """Build a swarmit client targeting one `device`, or the whole swarm when None.
 
     Reuses swarmit's own conn-string translation so the two CLIs can't
     drift, and falls back to the unified dotbot config's `conn` / `swarm_id`
@@ -71,7 +71,7 @@ def _build_swarmit_client(ctx, conn, swarm_id, device):
         mqtt_password=final.get("mqtt_password"),
         network_id=int(final["swarmit_network_id"], 16),
         adapter=final["adapter"],
-        devices=[device.upper()],
+        devices=[device.upper()] if device else [],
         verbose=False,
     )
     return build_client(settings)
@@ -207,7 +207,7 @@ def _collect(
             point_prompt,
             resolve_placement_points,
         )
-        from dotbot.calibration.wire import calibration_payload
+        from dotbot.calibration.lighthouse2 import calibration_payload_int32
     except ImportError as exc:
         click.echo(
             "`dotbot swarm lh2-calibration collect` needs the calibration "
@@ -309,7 +309,9 @@ def _collect(
         click.echo(f"Calibration id {calibration.id}, site {site.name}")
 
         if push:
-            client.send_lh2_calibration(calibration_payload(calibration.stations))
+            client.send_lh2_calibration(
+                calibration_payload_int32(calibration.stations)
+            )
             click.echo("Sent the calibration to the robots over the air.")
         else:
             click.echo(
@@ -328,6 +330,24 @@ def _collect(
 )
 @click.argument("calibration")
 @click.option(
+    "-n",
+    "--conn",
+    "--connection",
+    "conn",
+    default=None,
+    help=(
+        "Swarm connection string: an MQTT broker `mqtts://host:port` or a "
+        "serial gateway `/dev/ttyACM0`. Falls back to the dotbot config."
+    ),
+)
+@click.option(
+    "-s",
+    "--swarm-id",
+    "swarm_id",
+    default=None,
+    help="Swarm id in hex (required for an MQTT broker connection).",
+)
+@click.option(
     "--site",
     "site_name",
     default=None,
@@ -337,17 +357,25 @@ def _collect(
     ),
 )
 @click.pass_context
-def _push(ctx, calibration, site_name):
-    from dotbot.calibration.lighthouse2 import resolve_calibration_path
-    from dotbot.cli._swarm_inject import inject_config
-    from dotbot.cli.swarm import _load_swarmit_group, _run_swarmit
+def _push(ctx, calibration, conn, swarm_id, site_name):
+    from dotbot.calibration.lighthouse2 import (
+        calibration_payload_int32,
+        read_calibration_file,
+        resolve_calibration_path,
+    )
 
     site, _ = site_from_context(ctx, site_name)
     try:
         path = resolve_calibration_path(calibration, site=site.name)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-
-    swarmit_group = _load_swarmit_group()
-    final = inject_config(["calibrate-lh2", str(path)], ctx.obj)
-    _run_swarmit(swarmit_group, final)
+    loaded = read_calibration_file(path)
+    payload = calibration_payload_int32(loaded.stations)
+    click.echo(
+        f"Sending {len(loaded.stations)} calibration matrix/matrices "
+        f"({len(payload)} B, id {loaded.id8}, site {site.name}) to the swarm..."
+    )
+    client = _build_swarmit_client(ctx, conn, swarm_id)
+    with client:
+        client.send_lh2_calibration(payload)
+    click.echo("Sent.")

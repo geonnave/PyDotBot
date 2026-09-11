@@ -586,6 +586,23 @@ def test_the_wire_payload_is_pinned_against_the_shared_fixture(tmp_path):
     assert calibration_payload(calibration.stations) == expected
 
 
+def test_the_cli_push_payload_goes_through_the_shim(tmp_path):
+    """`push` and `collect --push` send int32 x 1e3, never float32, until the firmware wave."""
+    from dotbot.calibration.lighthouse2 import (
+        calibration_payload_int32,
+        homography_as_bytes,
+    )
+
+    path = tmp_path / "calibration.toml"
+    path.write_text(FIXTURE_TOML, encoding="utf-8")
+    calibration = read_calibration_file(path)
+
+    payload = calibration_payload_int32(calibration.stations)
+    assert payload == bytes([1]) + homography_as_bytes(calibration.stations[0].matrix)
+    assert len(payload) == 37
+    assert payload != calibration_payload(calibration.stations)
+
+
 def test_the_int32_shim_is_the_only_quantised_path(tmp_path):
     """The shim carries a schema 2 file to firmware that still reads int32."""
     from dotbot.calibration.lighthouse2 import homography_as_bytes

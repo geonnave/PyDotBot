@@ -316,8 +316,9 @@ def homography_as_bytes(matrix: np.ndarray) -> bytes:
 
     The only place a homography is quantised, and it exists solely so a
     schema 2 calibration can reach firmware that still reads the int32 x 1e3
-    encoding. It is deleted in the float32 firmware wave, along with its two
-    callers, the controller's push payload and the config-page writer.
+    encoding. It is deleted in the float32 firmware wave, along with its
+    callers: the controller's push payload, the config-page writer and
+    `calibration_payload_int32`, which the CLI push sends.
     """
     matrix_bytes = bytearray()
     try:
@@ -328,6 +329,22 @@ def homography_as_bytes(matrix: np.ndarray) -> bytes:
     except Exception:  # noqa: BLE001 - defensive fallback for overflow
         matrix_bytes = bytearray(36)
     return matrix_bytes
+
+
+def calibration_payload_int32(stations) -> bytes:
+    """The push payload for firmware that reads int32 x 1e3.
+
+    A count byte, then `homography_as_bytes` per station in index order:
+    the same layout as `wire.calibration_payload`, quantised through the
+    shim. Deleted with it.
+    """
+    ordered = sorted(stations, key=lambda s: s.index)
+    if not ordered:
+        raise ValueError("calibration carries no solved station")
+    payload = bytearray([len(ordered)])
+    for station in ordered:
+        payload += homography_as_bytes(station.matrix)
+    return bytes(payload)
 
 
 def _slug_tag(tag: str) -> str:
