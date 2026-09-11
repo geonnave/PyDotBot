@@ -37,7 +37,9 @@ CALIBRATION_SUBDIR = "calibrations"
 CALIBRATION_TOML_GLOB = "calibration-*.toml"
 CALIBRATION_SCHEMA_VERSION = 2
 
-FRAME_NAME_DEFAULT = "inria-aio-c"
+# Neutral: a real frame is named by `frame` in the dotbot config (or
+# `--frame`), never by the package.
+FRAME_NAME_DEFAULT = "default"
 FALSE_ORIGIN_AT_DEFAULT = (
     "arena top-left corner, against the door wall of C405 "
     "(the wall with the corridor door)"
@@ -245,6 +247,25 @@ def calculate_camera_point(counts: LH2Counts) -> np.ndarray:
         cam_y = -math.sin(a1 / 2 - a2 / 2 - 60 * math.pi / 180) / math.tan(math.pi / 6)
 
     return np.asarray([cam_x, cam_y], dtype=np.float64)
+
+
+def counts_for_camera_point(
+    cam_x: float, cam_y: float, lh_index: int = 0
+) -> LH2Counts:
+    """Inverse of `calculate_camera_point`: the counts that camera point gives.
+
+    What a station would have reported for a point in its own view, which is
+    how synthetic captures are built.
+    """
+    period = LH_PERIODS[lh_index]
+    half_sum = math.atan(-cam_x)
+    half_diff = math.pi / 3 + math.asin(-cam_y * math.tan(math.pi / 6))
+    a1, a2 = half_sum - half_diff, half_sum + half_diff
+    while a1 < 0:
+        a1 += math.pi
+        a2 += math.pi
+    scale = period / 8 / (2 * math.pi)
+    return LH2Counts(lh_index, a1 * scale, a2 * scale)
 
 
 def camera_points_from_counts(counts: list[LH2Counts]) -> np.ndarray:
@@ -545,11 +566,17 @@ def read_calibration_file(path: Path) -> Calibration:
     return calibration
 
 
-def resolve_calibration_path(spec: str, root: Optional[Path] = None) -> Path:
+def resolve_calibration_path(
+    spec: str,
+    root: Optional[Path] = None,
+    frame: Optional[str] = None,
+) -> Path:
     """The file `spec` names: a path, or an id prefix under a frame directory.
 
     Never "the newest": a calibration in use is always the one named. An
-    ambiguous id prefix is an error that lists the matches.
+    ambiguous id prefix is an error that lists the matches. `frame` limits
+    the search to that frame's directory, so an id prefix cannot resolve to
+    another site's calibration.
     """
     candidate = Path(spec).expanduser()
     if candidate.is_file():
@@ -558,7 +585,7 @@ def resolve_calibration_path(spec: str, root: Optional[Path] = None) -> Path:
     root = root or calibration_root()
     matches = sorted(
         path
-        for path in root.glob(f"*/{CALIBRATION_TOML_GLOB}")
+        for path in root.glob(f"{frame or '*'}/{CALIBRATION_TOML_GLOB}")
         if _file_id(path).startswith(spec.lower())
     )
     if len(matches) == 1:
@@ -566,7 +593,7 @@ def resolve_calibration_path(spec: str, root: Optional[Path] = None) -> Path:
     if not matches:
         raise ValueError(
             f"no calibration matches {spec!r}: it is neither a readable file nor "
-            f"the id prefix of a file under {root}"
+            f"the id prefix of a file under {root / (frame or '*')}"
         )
     listed = "\n  ".join(str(m) for m in matches)
     raise ValueError(f"calibration id prefix {spec!r} matches several files:\n  {listed}")
@@ -581,9 +608,13 @@ def _file_id(path: Path) -> str:
         return ""
 
 
-def load_calibration(spec: str, root: Optional[Path] = None) -> Calibration:
+def load_calibration(
+    spec: str,
+    root: Optional[Path] = None,
+    frame: Optional[str] = None,
+) -> Calibration:
     """Read the calibration `spec` names."""
-    return read_calibration_file(resolve_calibration_path(spec, root))
+    return read_calibration_file(resolve_calibration_path(spec, root, frame))
 
 
 # --- Manager ----------------------------------------------------------------

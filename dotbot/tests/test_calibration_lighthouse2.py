@@ -7,7 +7,6 @@ about 0.1 mm on the floor, so the declared coordinates are derived from the
 integer counts rather than the other way round.
 """
 
-import math
 import tomllib
 
 import numpy as np
@@ -15,7 +14,6 @@ import pytest
 
 from dotbot.calibration import lighthouse2
 from dotbot.calibration.lighthouse2 import (
-    LH_PERIODS,
     Frame,
     LH2Counts,
     LighthouseManager,
@@ -23,6 +21,7 @@ from dotbot.calibration.lighthouse2 import (
     Sample,
     apply_homography,
     calculate_camera_point,
+    counts_for_camera_point,
     read_calibration_file,
     render_calibration,
     resolve_calibration_path,
@@ -43,19 +42,6 @@ H_TRUE = np.array(
 )
 
 ARENA = Bounds(0, 0, 2000, 2000, "arena")
-
-
-def counts_for_camera_point(cam_x, cam_y, lh_index=0) -> LH2Counts:
-    """Inverse of `calculate_camera_point`, for building synthetic captures."""
-    period = LH_PERIODS[lh_index]
-    half_sum = math.atan(-cam_x)
-    half_diff = math.pi / 3 + math.asin(-cam_y * math.tan(math.pi / 6))
-    a1, a2 = half_sum - half_diff, half_sum + half_diff
-    while a1 < 0:
-        a1 += math.pi
-        a2 += math.pi
-    scale = period / 8 / (2 * math.pi)
-    return LH2Counts(lh_index, a1 * scale, a2 * scale)
 
 
 def _floor_from_camera(homography, cam_x, cam_y):
@@ -199,10 +185,10 @@ def _saved(monkeypatch, tmp_path, **kwargs):
 def test_save_writes_schema_2_into_the_frame_directory(monkeypatch, tmp_path):
     _, path = _saved(monkeypatch, tmp_path)
 
-    assert path.parent == tmp_path / "calibrations" / "inria-aio-c"
+    assert path.parent == tmp_path / "calibrations" / "default"
     parsed = tomllib.loads(path.read_text())
     assert parsed["schema_version"] == 2
-    assert parsed["frame"]["name"] == "inria-aio-c"
+    assert parsed["frame"]["name"] == "default"
     assert parsed["frame"]["false_origin_mm"] == [0, 0]
     assert parsed["frame"]["false_origin_at"]
     assert parsed["validity"]["valid_mm"] == [0, 0, 4000, 4500]
@@ -309,6 +295,16 @@ def test_resolve_by_id_prefix_under_the_frame_directory(monkeypatch, tmp_path):
         resolve_calibration_path("ffffffff", root=tmp_path / "calibrations")
 
 
+def test_an_id_prefix_resolves_only_under_the_named_frame(monkeypatch, tmp_path):
+    _, path = _saved(monkeypatch, tmp_path, frame=Frame(name="site-a"))
+    root = tmp_path / "calibrations"
+    prefix = path.name.split("-")[-1][:8]
+
+    assert resolve_calibration_path(prefix, root, frame="site-a") == path
+    with pytest.raises(ValueError, match="no calibration matches"):
+        resolve_calibration_path(prefix, root, frame="site-b")
+
+
 def test_resolve_prefers_an_actual_path(monkeypatch, tmp_path):
     _, path = _saved(monkeypatch, tmp_path)
     assert resolve_calibration_path(str(path)) == path
@@ -404,8 +400,9 @@ def test_bounds_resolution_forms():
 
 
 def test_frame_defaults_name_the_anchor():
+    """The package names no lab: a real frame name comes from the config."""
     frame = Frame()
-    assert frame.name == "inria-aio-c"
+    assert frame.name == "default"
     assert frame.false_origin_mm == (0, 0)
     assert "C405" in frame.false_origin_at
 

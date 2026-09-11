@@ -111,6 +111,7 @@ class Deployment(_Strict):
 
     conn: Conn = None
     swarm_id: str | None = None
+    frame: str | None = None
     serial_port: str | None = None
     location: str | None = None  # descriptive, for `dotbot deployment list`
     bots: int | None = None  # descriptive
@@ -179,6 +180,10 @@ class DotbotConfig(_Strict):
     log_level: str | None = None
     conn: Conn = None
     swarm_id: str | None = None
+    # The coordinate frame this site's calibrations and bounds live in. Read
+    # by `swarm lh2-calibration` and by the controller's calibration lookup,
+    # so it is shared rather than per-command.
+    frame: str | None = None
 
     # `[bounds.<name>]` tables map to {name: BoundsSection}. Shared across the
     # whole config, since a bounds is a view of the floor rather than a

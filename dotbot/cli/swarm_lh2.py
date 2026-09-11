@@ -30,6 +30,8 @@ import time
 
 import click
 
+from dotbot.cli._frame import frame_from_context
+
 
 def _build_swarmit_client(ctx, conn, swarm_id, device):
     """Build a swarmit client targeting a single `device`.
@@ -153,7 +155,11 @@ def cmd() -> None:
     "--frame",
     "frame_name",
     default=None,
-    help="Frame the points are expressed in. Defaults to the package frame.",
+    help=(
+        "The coordinate frame the points are expressed in, and the directory "
+        "the calibration is saved under. Defaults to `frame` in the dotbot "
+        "config."
+    ),
 )
 @click.option(
     "--reads",
@@ -245,7 +251,8 @@ def _collect(
             f"{len(points_mm)}. Span the area you will drive in."
         )
 
-    frame = Frame(name=frame_name) if frame_name else Frame()
+    frame_name, frame_source = frame_from_context(ctx, frame_name)
+    frame = Frame(name=frame_name)
     placement = Placement(index=0, at=" ".join(specs), points_mm=points_mm)
 
     try:
@@ -263,7 +270,7 @@ def _collect(
             time.sleep(0.2)
             click.echo(
                 f"\nCollecting LH2 calibration from {device.upper()} in frame "
-                f"{frame.name}.\n"
+                f"{frame.name} (from {frame_source}).\n"
                 "Stop the robot's app first (capture only runs in READY).\n"
                 f"{len(points_mm)} point(s), {reads} reads each, in the order "
                 "listed.\n"
@@ -337,14 +344,24 @@ def _collect(
     ),
 )
 @click.argument("calibration")
+@click.option(
+    "--frame",
+    "frame_name",
+    default=None,
+    help=(
+        "The coordinate frame to look the id up under. Defaults to `frame` "
+        "in the dotbot config."
+    ),
+)
 @click.pass_context
-def _push(ctx, calibration):
+def _push(ctx, calibration, frame_name):
     from dotbot.calibration.lighthouse2 import resolve_calibration_path
     from dotbot.cli._swarm_inject import inject_config
     from dotbot.cli.swarm import _load_swarmit_group, _run_swarmit
 
+    frame_name, _ = frame_from_context(ctx, frame_name)
     try:
-        path = resolve_calibration_path(calibration)
+        path = resolve_calibration_path(calibration, frame=frame_name)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 

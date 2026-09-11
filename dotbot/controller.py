@@ -90,16 +90,16 @@ LH2_POSITION_DISTANCE_THRESHOLD = 20  # mm
 GPS_POSITION_DISTANCE_THRESHOLD = 5  # meters
 
 
-def load_calibration(spec: str):
+def load_calibration(spec: str, frame: Optional[str] = None):
     """The schema 2 calibration `spec` names: a file path or an id prefix.
 
     Never the newest file on disk: a controller runs on the calibration it
     was told to run on, so that two bots reporting the same id are known to
-    carry the same numbers.
+    carry the same numbers. An id prefix resolves under `frame` only.
     """
     from dotbot.calibration.lighthouse2 import load_calibration as _load
 
-    return _load(spec)
+    return _load(spec, frame=frame)
 
 
 class ControllerException(Exception):
@@ -124,6 +124,7 @@ class ControllerSettings:
     controller_http_host: str = CONTROLLER_HTTP_HOST_DEFAULT
     bounds: tuple[str, ...] = (BOUNDS_DEFAULT,)
     named_bounds: dict = dataclasses.field(default_factory=dict)
+    frame: Optional[str] = None
     calibration: Optional[str] = None
     background_map: str = ""
     headless: bool = False
@@ -199,7 +200,9 @@ class Controller:
         self.calibration = None
         self.lh2_calibration = []
         if settings.calibration:
-            self.calibration = load_calibration(settings.calibration)
+            self.calibration = load_calibration(
+                settings.calibration, frame=settings.frame
+            )
             self.lh2_calibration = self.calibration.stations
             self.logger.info(
                 "Calibration loaded",

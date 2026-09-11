@@ -299,7 +299,7 @@ def test_addr_to_hex_is_uppercase_and_padded(addr, expected):
     assert addr_to_hex(addr) == addr_to_hex(addr).upper()
 
 
-def _write_calibration(tmp_path, monkeypatch):
+def _write_calibration(tmp_path, monkeypatch, frame="site-a"):
     """Save a solved calibration under tmp_path and return its id."""
     import sys
 
@@ -311,7 +311,8 @@ def _write_calibration(tmp_path, monkeypatch):
     monkeypatch.setattr(lighthouse2, "CALIBRATION_DIR", tmp_path)
     corners = [(-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25)]
     manager = lighthouse2.LighthouseManager(
-        placements=[helpers._consistent_placement(corners, reads=3)]
+        placements=[helpers._consistent_placement(corners, reads=3)],
+        frame=lighthouse2.Frame(name=frame),
     )
     manager.solve()
     path = manager.save_calibration()
@@ -328,16 +329,19 @@ def test_controller_loads_the_calibration_named_by_id(tmp_path, monkeypatch, ser
     written = _write_calibration(tmp_path, monkeypatch)
     settings = ControllerSettings(
         port="/dev/null", baudrate=115200, network_id="0", gw_address="78",
-        calibration=written.id8,
+        frame="site-a", calibration=written.id8,
     )
     controller = Controller(settings)
 
     assert controller.lh2_calibration
-    assert controller.calibration.frame.name == "inria-aio-c"
+    assert controller.calibration.frame.name == "site-a"
     assert (
-        load_calibration(written.id8).path
-        == tmp_path / "calibrations" / "inria-aio-c" / written.path.name
+        load_calibration(written.id8, frame="site-a").path
+        == tmp_path / "calibrations" / "site-a" / written.path.name
     )
+    # The frame scopes the lookup: the same id is not found under another.
+    with pytest.raises(ValueError, match="no calibration matches"):
+        load_calibration(written.id8, frame="site-b")
 
     from dotbot.calibration.lighthouse2 import homography_as_bytes
 

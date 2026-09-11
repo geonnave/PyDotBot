@@ -30,6 +30,7 @@ from dotbot import (
 from dotbot.bounds import NAMED_BOUNDS_DEFAULT, Bounds
 from dotbot.cli._cfg import from_config
 from dotbot.cli._conn import ConnError, needs_swarm_id, parse_connection
+from dotbot.cli._frame import frame_from_context
 from dotbot.controller import Controller, ControllerSettings
 from dotbot.logger import setup_logging
 
@@ -257,6 +258,16 @@ def _maybe_scaffold_sim_state(explicit_init_state):
     ),
 )
 @click.option(
+    "--frame",
+    "frame",
+    type=str,
+    default=None,
+    help=(
+        "The coordinate frame this session's calibrations live in. Defaults "
+        "to `frame` in the dotbot config."
+    ),
+)
+@click.option(
     "--calibration",
     type=str,
     help=(
@@ -318,6 +329,7 @@ def main(
     controller_http_port,
     controller_http_host,
     bounds,
+    frame,
     calibration,
     background_map,
     simulator_init_state,
@@ -351,6 +363,7 @@ def main(
     mrta_url = from_config(ctx, "mrta_url", "mrta_url", "run.controller")
 
     unified = (ctx.obj or {}).get("config")
+    frame, frame_source = frame_from_context(ctx, frame)
     named_bounds = _named_bounds(unified)
     bounds, bounds_source = _resolve_controller_key(
         "bounds", list(bounds) or None, unified, BOUNDS_DEFAULT
@@ -358,6 +371,7 @@ def main(
     calibration, calibration_source = _resolve_controller_key(
         "calibration", calibration, unified, None
     )
+    print(f"Frame: {frame} (from {frame_source})")
     print(f"Bounds: {' '.join(bounds)} (from {bounds_source})")
     print(
         f"Calibration: {calibration} (from {calibration_source})"
@@ -399,6 +413,7 @@ def main(
         "controller_http_host": controller_http_host,
         "bounds": tuple(bounds),
         "named_bounds": named_bounds,
+        "frame": frame,
         "calibration": calibration,
         "background_map": background_map,
         "simulator_init_state": simulator_init_state,
