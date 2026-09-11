@@ -15,7 +15,7 @@ export const apiFetchDotbots = async (): Promise<DotBot[]> => {
 };
 
 export const apiFetchArea = async (): Promise<Area[]> => {
-  log.info("Fetching the active area set from API");
+  log.info("Fetching the areas shown from API");
   return await axios.get<Area[]>(
     `${API_URL}/controller/area`,
   ).then(res => res.data);

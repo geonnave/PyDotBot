@@ -216,7 +216,7 @@ interface DotBotsMapProps {
   active: string;
   // The part of the frame this map draws: the whole site plus a margin.
   viewport: Area;
-  // The active set, drawn solid; every other area of the site is outlined.
+  // The areas shown, drawn solid; every other area of the site is outlined.
   activeAreas: Area[];
   siteAreas: Area[];
   backgroundMap?: BackgroundMap;
@@ -295,7 +295,7 @@ export const DotBotsMap: React.FC<DotBotsMapProps> = (props) => {
                 strokeWidth="1"
                 onClick={mapClicked}
               />
-              {/* the site's areas: the active set solid, the rest outlined */}
+              {/* the site's areas: the shown ones solid, the rest outlined */}
               {props.siteAreas
                 .filter(area => !activeNames.has(area.name ?? ""))
                 .map(area => (

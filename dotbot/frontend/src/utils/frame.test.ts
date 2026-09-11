@@ -20,7 +20,7 @@ describe('siteViewport', () => {
     });
   });
 
-  test('falls back to the active set when the site has no measured extent', () => {
+  test('falls back to the areas shown when the site has no measured extent', () => {
     expect(siteViewport(site(null), [arena, annex], arena)).toEqual({
       x: -2000, y: -2000, w: 6000, h: 8000,
     });

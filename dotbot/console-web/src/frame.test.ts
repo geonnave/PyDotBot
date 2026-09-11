@@ -74,7 +74,7 @@ describe("the default viewport", () => {
     expect(areaToFraction({ x: 2000, y: 4000 }, vp)).toEqual({ fx: 2 / 3, fy: 0.75 });
   });
 
-  it("falls back to the active set when the site has no measured extent", () => {
+  it("falls back to the areas shown when the site has no measured extent", () => {
     expect(siteViewport(site(null), [ARENA, ANNEX], ARENA)).toEqual({
       x: -2000,
       y: -2000,

@@ -61,7 +61,7 @@ class RestClient:
         return []
 
     async def fetch_area(self) -> list[DotBotAreaModel]:
-        """Fetch the controller's active area set, in frame millimetres."""
+        """Fetch the areas the controller shows, in frame millimetres."""
         try:
             response = await self._client.get(
                 f"{self.base_url}/area",

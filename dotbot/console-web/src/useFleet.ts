@@ -119,7 +119,7 @@ export function useFleet(): {
     }
   }, [rebuild]);
 
-  // Initial data, the site the map is drawn over, and the active area set.
+  // Initial data, the site the map is drawn over, and the areas shown.
   useEffect(() => {
     reloadDotBots();
     fetchSite()

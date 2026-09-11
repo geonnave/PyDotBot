@@ -15,7 +15,7 @@ export interface RgbLed {
   blue: number;
 }
 
-// GET /controller/area - one rectangle of the active area set, in frame mm.
+// GET /controller/area - one of the areas shown, in frame mm.
 export interface Area {
   x: number;
   y: number;

@@ -967,7 +967,7 @@ def test_the_api_binds_loopback_unless_asked_otherwise():
 
 @pytest.mark.asyncio
 async def test_get_controller_area():
-    """The active area set reaches a renderer as a list of frame rectangles."""
+    """The areas shown reach a renderer as a list of frame rectangles."""
     api.controller.areas = [Area(0, 2000, 2000, 2000, "annex")]
     response = await client.get("/controller/area")
     assert response.status_code == 200

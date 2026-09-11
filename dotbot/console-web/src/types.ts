@@ -147,7 +147,7 @@ export interface ControllerConnection {
   gw_address: string;
 }
 
-// GET /controller/area - one rectangle of the active area set, in frame mm.
+// GET /controller/area - one of the areas shown, in frame mm.
 // An area is a view of the frame and carries no calibration, so changing it
 // never touches one.
 export interface Area {

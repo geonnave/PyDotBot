@@ -49,7 +49,7 @@ interface MapViewProps {
   bots: UnifiedBot[];
   // The part of the frame the map draws: the whole site plus a margin.
   viewport: Area;
-  // The active set, drawn solid; every other area of the site is outlined.
+  // The areas shown, drawn solid; every other area of the site is outlined.
   activeAreas: Area[];
   siteAreas: Area[];
   selection: Set<string>;
@@ -263,7 +263,7 @@ export const MapView: React.FC<MapViewProps> = (props) => {
           <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: "rgba(228,3,46,.16)", pointerEvents: "none" }} />
           <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 1, background: "var(--hairline)", pointerEvents: "none" }} />
 
-          {/* the site's areas: the active set solid, the rest outlined */}
+          {/* the site's areas: the shown ones solid, the rest outlined */}
           {props.siteAreas
             .filter((a) => !activeNames.has(a.name ?? ""))
             .map((a) => (

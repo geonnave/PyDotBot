@@ -287,11 +287,11 @@ async def dotbots(query: Annotated[DotBotQueryModel, Query()]):
     path="/controller/area",
     response_model=List[DotBotAreaModel],
     response_model_exclude_none=True,
-    summary="Return the active area set of the controller, in frame millimetres",
+    summary="Return the areas shown by the controller, in frame millimetres",
     tags=["controller"],
 )
 async def area():
-    """Active area set HTTP GET handler."""
+    """Areas-shown HTTP GET handler."""
     return [DotBotAreaModel(**a.as_dict()) for a in api.controller.areas]
 
 

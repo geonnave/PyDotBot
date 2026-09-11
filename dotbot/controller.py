@@ -121,7 +121,7 @@ class ControllerSettings:
     network_id: str = NETWORK_ID_DEFAULT
     controller_http_port: int = CONTROLLER_HTTP_PORT_DEFAULT
     controller_http_host: str = CONTROLLER_HTTP_HOST_DEFAULT
-    # The active area set, each entry a name, a "+"-joined composite or
+    # The areas shown, each entry a name, a "+"-joined composite or
     # x,y,w,h in mm. Empty means the whole site.
     area: tuple[str, ...] = ()
     site: Optional[Site] = None

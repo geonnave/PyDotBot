@@ -16,7 +16,7 @@ interface DotBotsProps {
   dotbots: DotBot[];
   // The part of the frame the map draws: the whole site plus a margin.
   viewport: Area;
-  // The active set, drawn solid; every other area of the site is outlined.
+  // The areas shown, drawn solid; every other area of the site is outlined.
   activeAreas: Area[];
   siteAreas: Area[];
   backgroundMap?: BackgroundMap;

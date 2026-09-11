@@ -15,7 +15,7 @@ const log = logger.child({ module: 'QrKeyApp' });
 const QrKeyApp: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState<QrKeyMessage | null>(null);
-  // The qrkey transport carries the active area set and no site, so the map
+  // The qrkey transport carries the areas shown and no site, so the map
   // draws that set with the same margin around it.
   const [activeAreas, setActiveAreas] = useState<Area[]>([{ x: 0, y: 0, w: 2000, h: 2000 }]);
   const [dotbots, setDotbots] = useState<DotBot[]>([]);

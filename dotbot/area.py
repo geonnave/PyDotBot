@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# What a renderer draws when neither an active area nor a site extent says
+# What a renderer draws when neither a shown area nor a site extent says
 # otherwise: a 2 x 2 m square at the frame origin.
 AREA_FALLBACK_MM = (0, 0, 2000, 2000)
 
@@ -93,7 +93,7 @@ class AreaRegistry:
         raise ValueError(f"unknown area {spec!r}; {self._known()}")
 
     def resolve_all(self, specs: list[str] | tuple[str, ...]) -> list[Area]:
-        """The active set: one rectangle per specification, in order."""
+        """The areas shown: one rectangle per specification, in order."""
         return [self.resolve(spec) for spec in specs]
 
     def _known(self) -> str:
@@ -112,7 +112,7 @@ class AreaRegistry:
 
 
 def union(areas: list[Area]) -> Area:
-    """The bounding box of an active set, for a renderer that needs one box."""
+    """The bounding box of the areas shown, for a renderer that needs one box."""
     if not areas:
         return fallback_area()
     return _bounding_box(areas, "")

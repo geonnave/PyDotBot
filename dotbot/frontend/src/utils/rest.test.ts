@@ -41,7 +41,7 @@ describe('apiFetchDotbots', () => {
 // ─── apiFetchArea ────────────────────────────────────────────────────────────
 
 describe('apiFetchArea', () => {
-  test('GET /controller/area and returns the active rectangles', async () => {
+  test('GET /controller/area and returns the shown rectangles', async () => {
     const areas = [{ x: 0, y: 2000, w: 2000, h: 2000, name: 'annex' }];
     mockedGet.mockResolvedValueOnce({ data: areas });
     const result = await apiFetchArea();
