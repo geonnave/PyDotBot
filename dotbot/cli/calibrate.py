@@ -10,7 +10,7 @@ Subcommands:
 
 - `collect`  — capture LH2 counts via the Textual TUI from a single
                serial-attached nRF DK; writes a schema 2 calibration file
-               under ~/.dotbot/calibrations/<frame>/.
+               under ~/.dotbot/calibrations/<site>/.
 
 Cable-free, over-the-air calibration of a DotBot in the arena lives under
 `dotbot swarm lh2-calibration` (it drives the fleet transport, not a serial
