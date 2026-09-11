@@ -263,7 +263,7 @@ def _collect(
                     prompt_suffix="",
                 )
                 try:
-                    samples = session.capture_point(
+                    capture = session.capture_point(
                         point=index,
                         reads=reads,
                         timeout=timeout,
@@ -272,13 +272,15 @@ def _collect(
                 except TimeoutError as exc:
                     click.echo(f"  ! {exc}", err=True)
                     raise click.Abort()
-                placement.samples.extend(samples)
-                for sample in samples:
+                placement.samples.extend(capture.samples)
+                for sample in capture.samples:
                     counts = sample.mean_counts()
                     click.echo(
                         f"    station {sample.station}: {sample.reads} reads, "
                         f"mean count1={counts.count1:.1f} count2={counts.count2:.1f}"
                     )
+                if capture.dropped:
+                    click.echo(f"    {capture.drop_summary()}")
 
         placement.captured_at = datetime.datetime.now(
             datetime.timezone.utc

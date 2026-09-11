@@ -12,7 +12,8 @@ A capture is n reads per point, not one: the per-point error is the
 placement sigma and the lighthouse's own over sqrt(n) in quadrature, so a
 single read costs about 60 % at every point of the field. Every record of
 every visible station in every reply is kept, because a point seen by two
-stations is the co-visibility evidence a seam needs.
+stations is the co-visibility evidence a seam needs - all but the records a
+real pair of sweeps cannot produce, which `samples_from_reads` drops.
 """
 
 from __future__ import annotations
@@ -21,8 +22,9 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
-from dotbot.calibration.lighthouse2 import LH2CalibrationSample, Sample
+from dotbot.calibration.lighthouse2 import LH2CalibrationSample, LH_PERIODS, Sample
 from dotbot.calibration.points import CORNERS  # noqa: F401 - the capture order
 
 CAPTURE_TIMEOUT_DEFAULT = 5.0
@@ -31,6 +33,10 @@ CAPTURE_READS_DEFAULT = 25
 
 # Each raw sample inside the LOG payload is [lh_index:1][count1:4 LE][count2:4 LE].
 _SAMPLE_SIZE = 9
+
+# A station really in view is decoded on nearly every read, so a station under
+# this share of a point's reads is a decode artefact rather than a station.
+STATION_PRESENCE_RATIO_MIN = 0.5
 
 
 def parse_capture_payload(data: bytes, tag: int) -> list[LH2CalibrationSample]:
@@ -52,23 +58,87 @@ def parse_capture_payload(data: bytes, tag: int) -> list[LH2CalibrationSample]:
     return samples
 
 
+@dataclass
+class PointCapture:
+    """One point's per-station samples, plus what the quality guard dropped.
+
+    `dropped` maps a station index to how many of its records were rejected,
+    so the caller can say so once per point instead of silently solving from
+    less data than it captured.
+    """
+
+    samples: list[Sample] = field(default_factory=list)
+    dropped: dict[int, int] = field(default_factory=dict)
+
+    @property
+    def drop_count(self) -> int:
+        return sum(self.dropped.values())
+
+    def drop_summary(self) -> str:
+        """One operator-facing line naming the stations that were dropped."""
+        stations = ", ".join(f"station {index}" for index in sorted(self.dropped))
+        plural = "" if self.drop_count == 1 else "s"
+        return f"dropped {self.drop_count} impossible record{plural} ({stations})"
+
+
+def _count_bound(station: int) -> int | None:
+    """The largest LFSR count a real sweep of `station` can report.
+
+    A count is an index into the station's 17-bit LFSR sequence and `count * 8`
+    spans the rotation period, so `period // 8` is the end of the sweep; the
+    sequence keeps running past it, which is where a mis-decode lands. None
+    when no period is known for the index, which is itself disqualifying.
+    """
+    if not 0 <= station < len(LH_PERIODS):
+        return None
+    return LH_PERIODS[station] // 8
+
+
+def _is_impossible(record: LH2CalibrationSample) -> bool:
+    """True for a record that no real pair of sweeps could have produced."""
+    # The two sweeps of one station hit the sensor at different rotor angles,
+    # so they cannot share an LFSR index.
+    if record.count1 == record.count2:
+        return True
+    bound = _count_bound(record.lh_index)
+    if bound is None:
+        return True
+    return not (0 <= record.count1 <= bound and 0 <= record.count2 <= bound)
+
+
 def samples_from_reads(
     reads: list[list[LH2CalibrationSample]], point: int
-) -> list[Sample]:
+) -> PointCapture:
     """Group per-capture records into one `Sample` per station at `point`.
 
     A station that a capture missed contributes fewer reads than the others,
-    which the stillness guard and the solve both tolerate.
+    which the stillness guard and the solve both tolerate. Records that are
+    physically impossible, and stations that appear in too few of the reads to
+    be in view at all, are dropped here and counted in the result.
     """
     per_station: dict[int, Sample] = {}
+    dropped: dict[int, int] = {}
     for capture in reads:
         for record in capture:
+            if _is_impossible(record):
+                dropped[record.lh_index] = dropped.get(record.lh_index, 0) + 1
+                continue
             sample = per_station.setdefault(
                 record.lh_index, Sample(station=record.lh_index, point=point)
             )
             sample.count1.append(record.count1)
             sample.count2.append(record.count2)
-    return [per_station[index] for index in sorted(per_station)]
+
+    presence_minimum = len(reads) * STATION_PRESENCE_RATIO_MIN
+    for index in sorted(per_station):
+        if per_station[index].reads < presence_minimum:
+            dropped[index] = dropped.get(index, 0) + per_station[index].reads
+            del per_station[index]
+
+    return PointCapture(
+        samples=[per_station[index] for index in sorted(per_station)],
+        dropped=dropped,
+    )
 
 
 class CaptureSession:
@@ -153,7 +223,7 @@ class CaptureSession:
         retries: int = CAPTURE_RETRIES_DEFAULT,
         on_attempt: Callable[[int, int], None] | None = None,
         on_read: Callable[[int, int], None] | None = None,
-    ) -> list[Sample]:
+    ) -> PointCapture:
         """Take `reads` captures at one point and group them per station."""
         collected: list[list[LH2CalibrationSample]] = []
         for index in range(reads):
