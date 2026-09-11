@@ -1,9 +1,10 @@
 import {
-  Bounds,
+  Area,
   ControllerConnection,
   LH2Position,
   PyDotBot,
   RgbLed,
+  Site,
   SwarmitNode,
 } from "./types";
 import { MRTA_UNAVAILABLE, MrtaStatus, parseStatus } from "./mrta";
@@ -18,8 +19,13 @@ export async function fetchDotBots(): Promise<PyDotBot[]> {
   return res.json();
 }
 
-export async function fetchBounds(): Promise<Bounds[]> {
-  const res = await fetch(`${CONTROLLER}/bounds`);
+export async function fetchArea(): Promise<Area[]> {
+  const res = await fetch(`${CONTROLLER}/area`);
+  return res.json();
+}
+
+export async function fetchSite(): Promise<Site> {
+  const res = await fetch(`${CONTROLLER}/site`);
   return res.json();
 }
 

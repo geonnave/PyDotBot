@@ -147,14 +147,25 @@ export interface ControllerConnection {
   gw_address: string;
 }
 
-// GET /controller/bounds - one rectangle of the active bounds, in frame mm.
-// A bounds is a view of the frame and carries no calibration, so changing it
+// GET /controller/area - one rectangle of the active area set, in frame mm.
+// An area is a view of the frame and carries no calibration, so changing it
 // never touches one.
-export interface Bounds {
+export interface Area {
   x: number;
   y: number;
   w: number;
   h: number;
+  name?: string;
+}
+
+// GET /controller/site - the floor the controller works in. `extent_mm` is
+// [width, height] with zero at its top-left corner, which is where `anchor`
+// points; a site with nothing measured yet reports none.
+export interface Site {
+  name: string;
+  anchor: string;
+  extent_mm: [number, number] | null;
+  areas: Area[];
 }
 
 // A waypoint mission queued locally but not yet sent: bound to the bots that

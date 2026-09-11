@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { controllerWsUrl, fetchBounds, fetchDotBots, fetchSwarmitStatus } from "./api";
+import { controllerWsUrl, fetchArea, fetchDotBots, fetchSite, fetchSwarmitStatus } from "./api";
+import { siteViewport } from "./frame";
 import {
+  Area,
   BotState,
   LinkState,
-  Bounds,
   PyDotBot,
   STATE_ORDER,
+  Site,
   SwarmitNode,
   UnifiedBot,
   WsNotification,
@@ -85,28 +87,22 @@ export function merge(
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-// The console draws one box, so an active set of several rectangles is drawn
-// over their bounding box.
-const DEFAULT_BOUNDS: Bounds = { x: 0, y: 0, w: 2000, h: 2000 };
-
-function unionBounds(list: Bounds[]): Bounds {
-  if (list.length === 0) return DEFAULT_BOUNDS;
-  const x = Math.min(...list.map((b) => b.x));
-  const y = Math.min(...list.map((b) => b.y));
-  const xMax = Math.max(...list.map((b) => b.x + b.w));
-  const yMax = Math.max(...list.map((b) => b.y + b.h));
-  return { x, y, w: xMax - x, h: yMax - y };
-}
+// What the map shows before the controller answers, and what a site with
+// nothing measured yet falls back to.
+const DEFAULT_AREA: Area = { x: 0, y: 0, w: 2000, h: 2000 };
 
 export function useFleet(): {
   bots: UnifiedBot[];
-  bounds: Bounds;
+  site: Site | null;
+  activeAreas: Area[];
+  viewport: Area;
   wsUp: boolean;
 } {
   const pyRef = useRef<Record<string, PyDotBot>>({});
   const swRef = useRef<Record<string, SwarmitNode>>({});
   const [bots, setBots] = useState<UnifiedBot[]>([]);
-  const [bounds, setBounds] = useState<Bounds>(DEFAULT_BOUNDS);
+  const [site, setSite] = useState<Site | null>(null);
+  const [activeAreas, setActiveAreas] = useState<Area[]>([DEFAULT_AREA]);
   const [wsUp, setWsUp] = useState(false);
 
   const rebuild = useCallback(() => {
@@ -123,11 +119,14 @@ export function useFleet(): {
     }
   }, [rebuild]);
 
-  // Initial data + active bounds.
+  // Initial data, the site the map is drawn over, and the active area set.
   useEffect(() => {
     reloadDotBots();
-    fetchBounds()
-      .then((list) => setBounds(unionBounds(list)))
+    fetchSite()
+      .then(setSite)
+      .catch(() => {});
+    fetchArea()
+      .then((list) => setActiveAreas(list.length > 0 ? list : [DEFAULT_AREA]))
       .catch(() => {});
   }, [reloadDotBots]);
 
@@ -212,5 +211,7 @@ export function useFleet(): {
     return () => clearInterval(t);
   }, [rebuild]);
 
-  return { bots, bounds, wsUp };
+  const viewport = siteViewport(site, activeAreas, DEFAULT_AREA);
+
+  return { bots, site, activeAreas, viewport, wsUp };
 }
