@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from dotbot.bounds import Bounds
+from dotbot.area import Area
+from dotbot.site import Site
 from dotbot.controller import ControllerSettings
 from dotbot.models import (
     DotBotGPSPosition,
@@ -965,11 +966,50 @@ def test_the_api_binds_loopback_unless_asked_otherwise():
 
 
 @pytest.mark.asyncio
-async def test_get_controller_bounds():
-    """The active bounds reach a renderer as a list of frame rectangles."""
-    from dotbot.bounds import Bounds
-
-    api.controller.bounds = [Bounds(0, 2000, 2000, 2000, "annex")]
-    response = await client.get("/controller/bounds")
+async def test_get_controller_area():
+    """The active area set reaches a renderer as a list of frame rectangles."""
+    api.controller.areas = [Area(0, 2000, 2000, 2000, "annex")]
+    response = await client.get("/controller/area")
     assert response.status_code == 200
-    assert response.json() == [{"x": 0, "y": 2000, "w": 2000, "h": 2000}]
+    assert response.json() == [
+        {"x": 0, "y": 2000, "w": 2000, "h": 2000, "name": "annex"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_controller_site():
+    """The console draws the whole site, so it needs the extent and the areas."""
+    api.controller.site = Site(
+        name="c405-arena",
+        anchor="the arena's top-left corner, against the door wall of C405",
+        extent_mm=(2000, 4000),
+        areas={
+            "arena": Area(0, 0, 2000, 2000, "arena"),
+            "annex": Area(0, 2000, 2000, 2000, "annex"),
+        },
+    )
+    response = await client.get("/controller/site")
+    assert response.status_code == 200
+    assert response.json() == {
+        "name": "c405-arena",
+        "anchor": "the arena's top-left corner, against the door wall of C405",
+        "extent_mm": [2000, 4000],
+        "areas": [
+            {"x": 0, "y": 2000, "w": 2000, "h": 2000, "name": "annex"},
+            {"x": 0, "y": 0, "w": 2000, "h": 2000, "name": "arena"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_controller_site_with_nothing_measured():
+    """A fresh install reports its neutral site rather than inventing a floor."""
+    api.controller.site = Site()
+    response = await client.get("/controller/site")
+    assert response.status_code == 200
+    assert response.json() == {
+        "name": "default",
+        "anchor": "",
+        "extent_mm": None,
+        "areas": [],
+    }

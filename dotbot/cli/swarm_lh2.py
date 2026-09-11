@@ -10,7 +10,7 @@ subcommands:
 - `collect` - walk the robots through a placement's points, trigger a
               raw-count capture per point over the air, solve every visible
               station by least squares, and save a schema 2 calibration
-              under ~/.dotbot/calibrations/<frame>/.
+              under ~/.dotbot/calibrations/<site>/.
 - `push <path|id>` - send a saved calibration to the robots over the air.
 
 The homography solve lives in PyDotBot (`dotbot.calibration.lighthouse2`);
@@ -30,7 +30,7 @@ import time
 
 import click
 
-from dotbot.cli._frame import frame_from_context
+from dotbot.cli._site import site_from_context
 
 
 def _build_swarmit_client(ctx, conn, swarm_id, device):
@@ -75,27 +75,6 @@ def _build_swarmit_client(ctx, conn, swarm_id, device):
         verbose=False,
     )
     return build_client(settings)
-
-
-def _bounds_registry(ctx):
-    """The named bounds this session resolves `--points` against."""
-    from dotbot.bounds import NAMED_BOUNDS_DEFAULT, Bounds, BoundsRegistry
-
-    tables = getattr((ctx.obj or {}).get("config"), "bounds", None) or {}
-    if not tables:
-        return BoundsRegistry()
-    return BoundsRegistry(
-        named={
-            name: Bounds(
-                x=table.x,
-                y=table.y,
-                w=table.w,
-                h=table.h,
-                name=name,
-            )
-            for name, table in tables.items()
-        }
-    )
 
 
 @click.group(
@@ -144,7 +123,7 @@ def cmd() -> None:
     multiple=True,
     help=(
         "Where this placement's points are, repeatable: `x,y` in frame mm, a "
-        "rectangle (a bounds name, or `x,y,w,h` in mm) for its centre, "
+        "rectangle (an area name, or `x,y,w,h` in mm) for its centre, "
         "`<rectangle>:<corner>`, or `<rectangle>:corners` for all four in "
         "capture order. A corner mark is where the photodiode lands with the "
         "robot inside the rectangle, PCB edges on its lines, nose toward the "
@@ -152,13 +131,12 @@ def cmd() -> None:
     ),
 )
 @click.option(
-    "--frame",
-    "frame_name",
+    "--site",
+    "site_name",
     default=None,
     help=(
-        "The coordinate frame the points are expressed in, and the directory "
-        "the calibration is saved under. Defaults to `frame` in the dotbot "
-        "config."
+        "The site the points are expressed in, and the directory the "
+        "calibration is saved under. Defaults to `site` in the dotbot config."
     ),
 )
 @click.option(
@@ -202,7 +180,7 @@ def _collect(
     conn,
     swarm_id,
     points,
-    frame_name,
+    site_name,
     reads,
     timeout,
     retries,
@@ -213,7 +191,7 @@ def _collect(
         from swarmit.testbed.protocol import LH2_CALIB_TAG
 
         from dotbot.calibration.lighthouse2 import (
-            Frame,
+            VALID_MM_DEFAULT,
             LighthouseManager,
             Placement,
             read_calibration_file,
@@ -224,7 +202,11 @@ def _collect(
             CAPTURE_TIMEOUT_DEFAULT,
             CaptureSession,
         )
-        from dotbot.calibration.points import resolve_placement_points
+        from dotbot.calibration.points import (
+            collect_header,
+            point_prompt,
+            resolve_placement_points,
+        )
         from dotbot.calibration.wire import calibration_payload
     except ImportError as exc:
         click.echo(
@@ -241,18 +223,18 @@ def _collect(
     retries = retries if retries is not None else CAPTURE_RETRIES_DEFAULT
     specs = list(points) or ["arena:corners"]
 
+    site, site_source = site_from_context(ctx, site_name)
     try:
-        points_mm = resolve_placement_points(specs, _bounds_registry(ctx))
+        placements = resolve_placement_points(specs, site.registry())
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    if len(points_mm) < 4:
+    if len(placements) < 4:
         raise click.ClickException(
             f"a homography needs at least 4 points, --points resolved to "
-            f"{len(points_mm)}. Span the area you will drive in."
+            f"{len(placements)}. Span the area you will drive in."
         )
 
-    frame_name, frame_source = frame_from_context(ctx, frame_name)
-    frame = Frame(name=frame_name)
+    points_mm = [p.mm for p in placements]
     placement = Placement(index=0, at=" ".join(specs), points_mm=points_mm)
 
     try:
@@ -269,16 +251,13 @@ def _collect(
             # print before our prompts, so the two don't interleave on screen.
             time.sleep(0.2)
             click.echo(
-                f"\nCollecting LH2 calibration from {device.upper()} in frame "
-                f"{frame.name} (from {frame_source}).\n"
-                "Stop the robot's app first (capture only runs in READY).\n"
-                f"{len(points_mm)} point(s), {reads} reads each, in the order "
-                "listed.\n"
+                collect_header(
+                    site, site_source, len(placements), reads, device
+                )
             )
-            for index, (x, y) in enumerate(points_mm):
+            for index, point in enumerate(placements):
                 click.prompt(
-                    f"  point {index}: put a photodiode on ({x:g}, {y:g}) mm, "
-                    "then press Enter",
+                    "  " + point_prompt(index, len(placements), point),
                     default="",
                     show_default=False,
                     prompt_suffix="",
@@ -304,7 +283,11 @@ def _collect(
         placement.captured_at = datetime.datetime.now(
             datetime.timezone.utc
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
-        manager = LighthouseManager(placements=[placement], frame=frame)
+        manager = LighthouseManager(
+            placements=[placement],
+            site=site,
+            valid_mm=site.valid_mm or VALID_MM_DEFAULT,
+        )
         try:
             stations = manager.solve()
         except Exception as exc:
@@ -323,7 +306,7 @@ def _collect(
         path = manager.save_calibration(tag=tag)
         calibration = read_calibration_file(path)
         click.echo(f"\nCalibration saved to {path}")
-        click.echo(f"Calibration id {calibration.id}, frame {frame.name}")
+        click.echo(f"Calibration id {calibration.id}, site {site.name}")
 
         if push:
             client.send_lh2_calibration(calibration_payload(calibration.stations))
@@ -340,28 +323,28 @@ def _collect(
     help=(
         "Send a saved LH2 calibration to the robots over the air. Takes a "
         "file path or the id prefix of a file under "
-        "~/.dotbot/calibrations/<frame>/."
+        "~/.dotbot/calibrations/<site>/."
     ),
 )
 @click.argument("calibration")
 @click.option(
-    "--frame",
-    "frame_name",
+    "--site",
+    "site_name",
     default=None,
     help=(
-        "The coordinate frame to look the id up under. Defaults to `frame` "
-        "in the dotbot config."
+        "The site to look the id up under. Defaults to `site` in the dotbot "
+        "config."
     ),
 )
 @click.pass_context
-def _push(ctx, calibration, frame_name):
+def _push(ctx, calibration, site_name):
     from dotbot.calibration.lighthouse2 import resolve_calibration_path
     from dotbot.cli._swarm_inject import inject_config
     from dotbot.cli.swarm import _load_swarmit_group, _run_swarmit
 
-    frame_name, _ = frame_from_context(ctx, frame_name)
+    site, _ = site_from_context(ctx, site_name)
     try:
-        path = resolve_calibration_path(calibration, frame=frame_name)
+        path = resolve_calibration_path(calibration, site=site.name)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 

@@ -20,7 +20,6 @@ CONTROLLER_HTTP_HOST_DEFAULT = "127.0.0.1"
 CONTROLLER_ADAPTER_DEFAULT = "serial"
 MQTT_HOST_DEFAULT = "localhost"
 MQTT_PORT_DEFAULT = 1883
-BOUNDS_DEFAULT = "arena"  # a named bounds from the config's [bounds.*] tables
 SIMULATOR_INIT_STATE_DEFAULT = "simulator_init_state.toml"
 SWARMIT_URL_DEFAULT = "http://localhost:8001"  # swarmit server default port
 MRTA_URL_DEFAULT = (

@@ -4,9 +4,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""LH2 calibration: the frame, the placements, the solve, and the file.
+"""LH2 calibration: the site, the placements, the solve, and the file.
 
-A calibration maps one basestation's camera points into the floor frame. It
+A calibration maps one basestation's camera points into a site's frame. It
 is solved by least squares from the placements, each a set of points whose
 frame coordinates are known and the raw counts every visible station read
 there, and it is stored with that evidence plus a deterministic identity.
@@ -27,6 +27,7 @@ from typing import Iterable, Optional, Sequence
 import numpy as np
 
 from dotbot.robots import ROBOT_DEFAULT
+from dotbot.site import SITE_DEFAULT, Site
 
 # cv2 is imported lazily inside `compute_homography_matrix` (the only
 # function that uses it), so reading and writing calibration files works
@@ -37,15 +38,9 @@ CALIBRATION_SUBDIR = "calibrations"
 CALIBRATION_TOML_GLOB = "calibration-*.toml"
 CALIBRATION_SCHEMA_VERSION = 2
 
-# Neutral: a real frame is named by `frame` in the dotbot config (or
-# `--frame`), never by the package.
-FRAME_NAME_DEFAULT = "default"
-FALSE_ORIGIN_AT_DEFAULT = (
-    "arena top-left corner, against the door wall of C405 "
-    "(the wall with the corridor door)"
-)
 # [x_min, y_min, x_max, y_max] in frame mm: outside it a reported position is
-# implausible and the bot drops it.
+# implausible and the bot drops it. A site with a known extent supplies its
+# own fence; this is what a site without one falls back to.
 VALID_MM_DEFAULT = (0, 0, 4000, 4500)
 
 LH2_BASESTATION_COUNT_MAX = 16
@@ -112,20 +107,6 @@ class LH2CalibrationSample:
             self.ref_count1 = int(self.ref_count1)
         if self.ref_count2 is not None:
             self.ref_count2 = int(self.ref_count2)
-
-
-@dataclass
-class Frame:
-    """Where zero is and which way the numbers grow.
-
-    `false_origin_at` is prose and no code parses it: it is the whole
-    specification for re-establishing the frame from the physical world, so
-    it names the anchor and resolves every ambiguity in the sentence itself.
-    """
-
-    name: str = FRAME_NAME_DEFAULT
-    false_origin_mm: tuple[int, int] = (0, 0)
-    false_origin_at: str = FALSE_ORIGIN_AT_DEFAULT
 
 
 @dataclass
@@ -206,7 +187,9 @@ class StationSolution:
 class Calibration:
     """A whole calibration file, in memory."""
 
-    frame: Frame = field(default_factory=Frame)
+    # The file records the site's name and anchor only, so a site read back
+    # from one carries no extent and no areas.
+    site: Site = field(default_factory=Site)
     valid_mm: tuple[int, int, int, int] = VALID_MM_DEFAULT
     placements: list[Placement] = field(default_factory=list)
     stations: list[StationSolution] = field(default_factory=list)
@@ -371,15 +354,17 @@ def canonical_serialisation(calibration: Calibration) -> str:
 
     One `key=value` line per hashed field, sorted, newline-joined. The rule
     that decides membership: if changing a field cannot change any computed
-    position, it is not here. So `false_origin_at`, `created_at`, `tag`, the
-    robot model and a placement's `at` note are all outside it, and a typo
-    fix in a sentence no code reads cannot make a fleet look stale.
+    position, it is not here. So the site's `anchor`, `created_at`, `tag`,
+    the robot model and a placement's `at` note are all outside it, and a
+    typo fix in a sentence no code reads cannot make a fleet look stale.
+
+    Zero is the site's anchor by definition, so there is no origin offset to
+    hash: a reframe shifts the stored points and re-solves, which the
+    `points_mm` and homography lines already cover.
     """
     lines = [
         f"schema_version={CALIBRATION_SCHEMA_VERSION}",
-        f"frame.name={calibration.frame.name}",
-        "frame.false_origin_mm="
-        + ",".join(_num(v) for v in calibration.frame.false_origin_mm),
+        f"site.name={calibration.site.name}",
         "validity.valid_mm=" + ",".join(_num(v) for v in calibration.valid_mm),
     ]
     for placement in calibration.placements:
@@ -416,13 +401,13 @@ def calibration_id(calibration: Calibration) -> str:
 
 
 def calibration_root() -> Path:
-    """Directory holding one subdirectory per frame."""
+    """Directory holding one subdirectory per site."""
     return CALIBRATION_DIR / CALIBRATION_SUBDIR
 
 
-def frame_dir(frame_name: str) -> Path:
-    """Where a frame's calibration files live."""
-    return calibration_root() / frame_name
+def site_dir(site_name: str) -> Path:
+    """Where a site's calibration files live."""
+    return calibration_root() / site_name
 
 
 def _toml_int_list(values: Iterable[float]) -> str:
@@ -444,7 +429,7 @@ def _toml_escape(text: str) -> str:
 
 def render_calibration(calibration: Calibration) -> str:
     """The schema 2 file, as text."""
-    frame = calibration.frame
+    site = calibration.site
     out = [
         f"schema_version = {CALIBRATION_SCHEMA_VERSION}",
         "",
@@ -457,10 +442,9 @@ def render_calibration(calibration: Calibration) -> str:
         out.append(f'tag = "{_toml_escape(calibration.tag)}"')
     out += [
         "",
-        "[frame]",
-        f'name = "{frame.name}"',
-        f"false_origin_mm = {_toml_int_list(frame.false_origin_mm)}",
-        f'false_origin_at = "{_toml_escape(frame.false_origin_at)}"',
+        "[site]",
+        f'name = "{site.name}"',
+        f'anchor = "{_toml_escape(site.anchor)}"',
         "",
         "[validity]",
         f"valid_mm = {_toml_int_list(calibration.valid_mm)}",
@@ -500,7 +484,7 @@ def read_calibration_file(path: Path) -> Calibration:
     """Parse a schema 2 calibration file.
 
     A file of any other schema version is rejected: there is no upgrade path,
-    because a schema 1 file carries a packed payload and no frame.
+    because a schema 1 file carries a packed payload and no site.
     """
     path = Path(path)
     with open(path, "rb") as handle:
@@ -511,12 +495,17 @@ def read_calibration_file(path: Path) -> Calibration:
             f"{path}: unsupported calibration schema_version {schema} "
             f"(this build supports {CALIBRATION_SCHEMA_VERSION})"
         )
+    if "frame" in data:
+        raise ValueError(
+            f"{path}: [frame] is not a table of this format. A calibration "
+            "records the site it was captured in: [site] with name and "
+            "anchor, zero being the anchor itself."
+        )
     metadata = data.get("metadata", {})
-    frame_data = data.get("frame", {})
-    frame = Frame(
-        name=frame_data.get("name", FRAME_NAME_DEFAULT),
-        false_origin_mm=tuple(frame_data.get("false_origin_mm", (0, 0))),
-        false_origin_at=frame_data.get("false_origin_at", ""),
+    site_data = data.get("site", {})
+    site = Site(
+        name=site_data.get("name", SITE_DEFAULT),
+        anchor=site_data.get("anchor", ""),
     )
     valid_mm = tuple(data.get("validity", {}).get("valid_mm", VALID_MM_DEFAULT))
 
@@ -553,7 +542,7 @@ def read_calibration_file(path: Path) -> Calibration:
     ]
 
     calibration = Calibration(
-        frame=frame,
+        site=site,
         valid_mm=valid_mm,
         placements=placements,
         stations=stations,
@@ -569,13 +558,13 @@ def read_calibration_file(path: Path) -> Calibration:
 def resolve_calibration_path(
     spec: str,
     root: Optional[Path] = None,
-    frame: Optional[str] = None,
+    site: Optional[str] = None,
 ) -> Path:
-    """The file `spec` names: a path, or an id prefix under a frame directory.
+    """The file `spec` names: a path, or an id prefix under a site directory.
 
     Never "the newest": a calibration in use is always the one named. An
-    ambiguous id prefix is an error that lists the matches. `frame` limits
-    the search to that frame's directory, so an id prefix cannot resolve to
+    ambiguous id prefix is an error that lists the matches. `site` limits
+    the search to that site's directory, so an id prefix cannot resolve to
     another site's calibration.
     """
     candidate = Path(spec).expanduser()
@@ -585,7 +574,7 @@ def resolve_calibration_path(
     root = root or calibration_root()
     matches = sorted(
         path
-        for path in root.glob(f"{frame or '*'}/{CALIBRATION_TOML_GLOB}")
+        for path in root.glob(f"{site or '*'}/{CALIBRATION_TOML_GLOB}")
         if _file_id(path).startswith(spec.lower())
     )
     if len(matches) == 1:
@@ -593,7 +582,7 @@ def resolve_calibration_path(
     if not matches:
         raise ValueError(
             f"no calibration matches {spec!r}: it is neither a readable file nor "
-            f"the id prefix of a file under {root / (frame or '*')}"
+            f"the id prefix of a file under {root / (site or '*')}"
         )
     listed = "\n  ".join(str(m) for m in matches)
     raise ValueError(f"calibration id prefix {spec!r} matches several files:\n  {listed}")
@@ -611,10 +600,10 @@ def _file_id(path: Path) -> str:
 def load_calibration(
     spec: str,
     root: Optional[Path] = None,
-    frame: Optional[str] = None,
+    site: Optional[str] = None,
 ) -> Calibration:
     """Read the calibration `spec` names."""
-    return read_calibration_file(resolve_calibration_path(spec, root, frame))
+    return read_calibration_file(resolve_calibration_path(spec, root, site))
 
 
 # --- Manager ----------------------------------------------------------------
@@ -626,13 +615,13 @@ class LighthouseManager:
     def __init__(
         self,
         placements: Optional[Sequence[Placement]] = None,
-        frame: Optional[Frame] = None,
+        site: Optional[Site] = None,
         valid_mm: Sequence[int] = VALID_MM_DEFAULT,
         robot: str = ROBOT_DEFAULT,
         extra_lh_num: int = 0,
     ):
         self.placements: list[Placement] = list(placements or [])
-        self.frame = frame or Frame()
+        self.site = site or Site()
         self.valid_mm = tuple(int(v) for v in valid_mm)
         self.robot = robot
         self.extra_lh_num = extra_lh_num
@@ -767,7 +756,7 @@ class LighthouseManager:
         """The in-memory calibration this manager has solved."""
         now = datetime.datetime.now(datetime.timezone.utc)
         return Calibration(
-            frame=self.frame,
+            site=self.site,
             valid_mm=self.valid_mm,
             placements=self.placements,
             stations=self.stations or [],
@@ -777,7 +766,7 @@ class LighthouseManager:
         )
 
     def save_calibration(self, tag: Optional[str] = None) -> Path:
-        """Write the calibration into its frame's directory.
+        """Write the calibration into its site's directory.
 
         The filename carries the capture stamp and the first eight characters
         of the id, so the name an operator reads back is the name the bot
@@ -788,9 +777,9 @@ class LighthouseManager:
 
 
 def write_calibration(calibration: Calibration) -> Path:
-    """Write `calibration` to `calibrations/<frame>/calibration-<stamp>-<id8>.toml`."""
+    """Write `calibration` to `calibrations/<site>/calibration-<stamp>-<id8>.toml`."""
     stamp = (calibration.created_at or "").replace(":", "-")
-    directory = frame_dir(calibration.frame.name)
+    directory = site_dir(calibration.site.name)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"calibration-{stamp}-{calibration.id8}.toml"
     # Explicit UTF-8: TOML is spec'd as UTF-8, and Path.write_text defaults to

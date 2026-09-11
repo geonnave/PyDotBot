@@ -32,7 +32,6 @@ from dotbot import (
     CONTROLLER_HTTP_HOST_DEFAULT,
     CONTROLLER_HTTP_PORT_DEFAULT,
     GATEWAY_ADDRESS_DEFAULT,
-    BOUNDS_DEFAULT,
     MQTT_HOST_DEFAULT,
     MQTT_PORT_DEFAULT,
     MRTA_URL_DEFAULT,
@@ -58,7 +57,6 @@ from dotbot.models import (
     MAX_POSITION_HISTORY_SIZE,
     DotBotGPSPosition,
     DotBotLH2Position,
-    DotBotBoundsModel,
     DotBotModel,
     DotBotNotificationCommand,
     DotBotNotificationModel,
@@ -72,9 +70,10 @@ from dotbot.protocol import (
     PayloadLh2CalibrationHomography,
     PayloadType,
 )
-from dotbot.bounds import NAMED_BOUNDS_DEFAULT, BoundsRegistry
+from dotbot.area import fallback_area
 from dotbot.calibration.lighthouse2 import homography_as_bytes
 from dotbot.server import api, default_ui_path
+from dotbot.site import Site
 
 # from dotbot.models import (
 #     DotBotModel,
@@ -90,16 +89,16 @@ LH2_POSITION_DISTANCE_THRESHOLD = 20  # mm
 GPS_POSITION_DISTANCE_THRESHOLD = 5  # meters
 
 
-def load_calibration(spec: str, frame: Optional[str] = None):
+def load_calibration(spec: str, site: Optional[str] = None):
     """The schema 2 calibration `spec` names: a file path or an id prefix.
 
     Never the newest file on disk: a controller runs on the calibration it
     was told to run on, so that two bots reporting the same id are known to
-    carry the same numbers. An id prefix resolves under `frame` only.
+    carry the same numbers. An id prefix resolves under `site` only.
     """
     from dotbot.calibration.lighthouse2 import load_calibration as _load
 
-    return _load(spec, frame=frame)
+    return _load(spec, site=site)
 
 
 class ControllerException(Exception):
@@ -122,9 +121,10 @@ class ControllerSettings:
     network_id: str = NETWORK_ID_DEFAULT
     controller_http_port: int = CONTROLLER_HTTP_PORT_DEFAULT
     controller_http_host: str = CONTROLLER_HTTP_HOST_DEFAULT
-    bounds: tuple[str, ...] = (BOUNDS_DEFAULT,)
-    named_bounds: dict = dataclasses.field(default_factory=dict)
-    frame: Optional[str] = None
+    # The active area set, each entry a name, a "+"-joined composite or
+    # x,y,w,h in mm. Empty means the whole site.
+    area: tuple[str, ...] = ()
+    site: Optional[Site] = None
     calibration: Optional[str] = None
     background_map: str = ""
     headless: bool = False
@@ -197,17 +197,22 @@ class Controller:
         self.settings = settings
         self.adapter: GatewayAdapterBase = None
         self.websockets = []
+        self.site = settings.site or Site()
+        if settings.area:
+            self.areas = self.site.registry().resolve_all(list(settings.area))
+        else:
+            self.areas = [self.site.extent or fallback_area(self.site.name)]
         self.calibration = None
         self.lh2_calibration = []
         if settings.calibration:
             self.calibration = load_calibration(
-                settings.calibration, frame=settings.frame
+                settings.calibration, site=self.site.name
             )
             self.lh2_calibration = self.calibration.stations
             self.logger.info(
                 "Calibration loaded",
                 path=str(self.calibration.path),
-                frame=self.calibration.frame.name,
+                site=self.calibration.site.name,
                 calibration_id=self.calibration.id,
                 stations=len(self.lh2_calibration),
             )
@@ -217,10 +222,6 @@ class Controller:
                 "Pass --calibration <path|id> or set [run.controller] calibration."
             )
         self.api = api
-        registry = BoundsRegistry(
-            named=dict(settings.named_bounds or NAMED_BOUNDS_DEFAULT)
-        )
-        self.bounds = registry.resolve_all(list(settings.bounds))
         if settings.csv_data_output is not None:
             self.logger.info("CSV data output enabled", path=settings.csv_data_output)
             self.csv_data_logger = CSVDataLogger(settings.csv_data_output)

@@ -12,6 +12,7 @@ from dotbot_utils.serial_interface import SerialInterface
 
 from dotbot import addr_to_hex
 from dotbot.adapter import SerialAdapter
+from dotbot.area import Area
 from dotbot.controller import Controller, ControllerSettings, gps_distance, lh2_distance
 from dotbot.models import (
     DotBotGPSPosition,
@@ -21,6 +22,18 @@ from dotbot.models import (
     DotBotStatus,
 )
 from dotbot.protocol import ApplicationType, ControlModeType, PayloadControlMode
+from dotbot.site import Site
+
+# A measured site, which the package never ships.
+C405 = Site(
+    name="c405-arena",
+    anchor="the arena's top-left corner, against the door wall of C405",
+    extent_mm=(2000, 4000),
+    areas={
+        "annex": Area(0, 2000, 2000, 2000, "annex"),
+        "wing": Area(2000, 2610, 1330, 1390, "wing"),
+    },
+)
 
 
 @pytest.fixture
@@ -299,7 +312,7 @@ def test_addr_to_hex_is_uppercase_and_padded(addr, expected):
     assert addr_to_hex(addr) == addr_to_hex(addr).upper()
 
 
-def _write_calibration(tmp_path, monkeypatch, frame="site-a"):
+def _write_calibration(tmp_path, monkeypatch, site="site-a"):
     """Save a solved calibration under tmp_path and return its id."""
     import sys
 
@@ -312,7 +325,7 @@ def _write_calibration(tmp_path, monkeypatch, frame="site-a"):
     corners = [(-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25)]
     manager = lighthouse2.LighthouseManager(
         placements=[helpers._consistent_placement(corners, reads=3)],
-        frame=lighthouse2.Frame(name=frame),
+        site=Site(name=site),
     )
     manager.solve()
     path = manager.save_calibration()
@@ -320,7 +333,7 @@ def _write_calibration(tmp_path, monkeypatch, frame="site-a"):
 
 
 def test_controller_loads_the_calibration_named_by_id(tmp_path, monkeypatch, serial_mock):
-    """An id prefix resolves under calibrations/<frame>/, never the newest file."""
+    """An id prefix resolves under calibrations/<site>/, never the newest file."""
     import numpy as np
 
     from dotbot.calibration.wire import unpack_payload
@@ -329,19 +342,19 @@ def test_controller_loads_the_calibration_named_by_id(tmp_path, monkeypatch, ser
     written = _write_calibration(tmp_path, monkeypatch)
     settings = ControllerSettings(
         port="/dev/null", baudrate=115200, network_id="0", gw_address="78",
-        frame="site-a", calibration=written.id8,
+        site=Site(name="site-a"), calibration=written.id8,
     )
     controller = Controller(settings)
 
     assert controller.lh2_calibration
-    assert controller.calibration.frame.name == "site-a"
+    assert controller.calibration.site.name == "site-a"
     assert (
-        load_calibration(written.id8, frame="site-a").path
+        load_calibration(written.id8, site="site-a").path
         == tmp_path / "calibrations" / "site-a" / written.path.name
     )
-    # The frame scopes the lookup: the same id is not found under another.
+    # The site scopes the lookup: the same id is not found under another.
     with pytest.raises(ValueError, match="no calibration matches"):
-        load_calibration(written.id8, frame="site-b")
+        load_calibration(written.id8, site="site-b")
 
     from dotbot.calibration.lighthouse2 import homography_as_bytes
 
@@ -376,11 +389,40 @@ def test_controller_with_no_calibration_loads_nothing(serial_mock):
     assert controller.calibration is None
 
 
-def test_controller_resolves_its_active_bounds(serial_mock):
+def test_controller_resolves_its_active_areas(serial_mock):
     settings = ControllerSettings(
         port="/dev/null", baudrate=115200, network_id="0", gw_address="78",
-        bounds=("annex", "wing"),
+        site=C405,
+        area=("annex", "wing"),
     )
     controller = Controller(settings)
-    assert [b.name for b in controller.bounds] == ["annex", "wing"]
-    assert controller.bounds[0].as_dict() == {"x": 0, "y": 2000, "w": 2000, "h": 2000}
+    assert [a.name for a in controller.areas] == ["annex", "wing"]
+    assert controller.areas[0].as_dict() == {
+        "x": 0,
+        "y": 2000,
+        "w": 2000,
+        "h": 2000,
+        "name": "annex",
+    }
+
+
+def test_no_active_area_draws_the_whole_site(serial_mock):
+    settings = ControllerSettings(
+        port="/dev/null", baudrate=115200, network_id="0", gw_address="78",
+        site=C405,
+    )
+    controller = Controller(settings)
+    assert [a.as_dict() for a in controller.areas] == [
+        {"x": 0, "y": 0, "w": 2000, "h": 4000, "name": "c405-arena"}
+    ]
+
+
+def test_a_site_with_no_extent_falls_back_to_one_rectangle(serial_mock):
+    settings = ControllerSettings(
+        port="/dev/null", baudrate=115200, network_id="0", gw_address="78",
+    )
+    controller = Controller(settings)
+    assert controller.site.name == "default"
+    assert [a.as_dict() for a in controller.areas] == [
+        {"x": 0, "y": 0, "w": 2000, "h": 2000, "name": "default"}
+    ]

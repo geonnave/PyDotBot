@@ -246,12 +246,12 @@ class QrKeyClient:
                 data=data,
             ).model_dump(exclude_none=True)
             self.qrkey.publish(reply_topic, message)
-        elif request.request == DotBotRequestType.BOUNDS:
-            logger.info("Publish bounds")
-            bounds = self.worker.run(self.client.fetch_bounds())
+        elif request.request == DotBotRequestType.AREA:
+            logger.info("Publish the area set")
+            areas = self.worker.run(self.client.fetch_area())
             message = DotBotReplyModel(
-                request=DotBotRequestType.BOUNDS,
-                data=[item.model_dump(exclude_none=True) for item in bounds],
+                request=DotBotRequestType.AREA,
+                data=[item.model_dump(exclude_none=True) for item in areas],
             ).model_dump(exclude_none=True)
             self.qrkey.publish(reply_topic, message)
         else:

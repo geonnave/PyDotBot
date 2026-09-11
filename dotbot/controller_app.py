@@ -18,7 +18,6 @@ import serial
 import toml
 
 from dotbot import (
-    BOUNDS_DEFAULT,
     CONTROLLER_HTTP_HOST_DEFAULT,
     CONTROLLER_HTTP_PORT_DEFAULT,
     GATEWAY_ADDRESS_DEFAULT,
@@ -27,10 +26,9 @@ from dotbot import (
     SWARMIT_URL_DEFAULT,
     pydotbot_version,
 )
-from dotbot.bounds import NAMED_BOUNDS_DEFAULT, Bounds
 from dotbot.cli._cfg import from_config
 from dotbot.cli._conn import ConnError, needs_swarm_id, parse_connection
-from dotbot.cli._frame import frame_from_context
+from dotbot.cli._site import site_from_context
 from dotbot.controller import Controller, ControllerSettings
 from dotbot.logger import setup_logging
 
@@ -48,29 +46,12 @@ _LEGACY_TOML_KEYS = {
 }
 
 
-def _named_bounds(config) -> dict:
-    """The `[bounds.<name>]` tables of the loaded config, else the defaults."""
-    tables = getattr(config, "bounds", None) or {}
-    if not tables:
-        return dict(NAMED_BOUNDS_DEFAULT)
-    return {
-        name: Bounds(
-            x=table.x,
-            y=table.y,
-            w=table.w,
-            h=table.h,
-            name=name,
-        )
-        for name, table in tables.items()
-    }
-
-
 def _resolve_controller_key(key, flag, config, default):
     """One `[run.controller]` key with the layer it came from.
 
     Explicit flag, then the environment, then the config table, then the
     built-in default. The top-level config is deliberately not consulted:
-    `bounds` there is the table of named rectangles, not a selection.
+    it carries the sites, not a selection within one.
     """
     if flag is not None:
         return flag, "the command line"
@@ -247,24 +228,25 @@ def _maybe_scaffold_sim_state(explicit_init_state):
     help="Path to a .toml configuration file.",
 )
 @click.option(
-    "--bounds",
-    "bounds",
+    "--area",
+    "area",
     type=str,
     multiple=True,
     help=(
-        "The rectangle of the frame in use this session: a name from the "
-        "config's [bounds.*] tables, a '+'-joined composite, or x,y,w,h in "
-        f"mm. Repeat for a set. Defaults to '{BOUNDS_DEFAULT}'."
+        "The part of the site in use this session: an area name from the "
+        "config's [sites.<site>.areas.*] tables, a '+'-joined composite, or "
+        "x,y,w,h in mm. Repeat for a set. Defaults to the whole site."
     ),
 )
 @click.option(
-    "--frame",
-    "frame",
+    "--site",
+    "site",
     type=str,
     default=None,
     help=(
-        "The coordinate frame this session's calibrations live in. Defaults "
-        "to `frame` in the dotbot config."
+        "The site this session works in, which names its coordinate frame "
+        "and the directory its calibrations live under. Defaults to `site` "
+        "in the dotbot config."
     ),
 )
 @click.option(
@@ -272,7 +254,7 @@ def _maybe_scaffold_sim_state(explicit_init_state):
     type=str,
     help=(
         "The LH2 calibration this session runs on: a file path or the id "
-        "prefix of a file under ~/.dotbot/calibrations/<frame>/. With none "
+        "prefix of a file under ~/.dotbot/calibrations/<site>/. With none "
         "given, no calibration is loaded and robots keep whatever they hold."
     ),
 )
@@ -283,8 +265,8 @@ def _maybe_scaffold_sim_state(explicit_init_state):
     help=(
         "Path to a background map image file in png format. The image should"
         "be a top-down view of the environment, with 1024 pixels width and a "
-        "height proportional to the active bounds, which are set with the "
-        "--bounds option."
+        "height proportional to the active area set, which is set with the "
+        "--area option."
     ),
 )
 @click.option(
@@ -328,8 +310,8 @@ def main(
     gw_address,
     controller_http_port,
     controller_http_host,
-    bounds,
-    frame,
+    area,
+    site,
     calibration,
     background_map,
     simulator_init_state,
@@ -363,16 +345,21 @@ def main(
     mrta_url = from_config(ctx, "mrta_url", "mrta_url", "run.controller")
 
     unified = (ctx.obj or {}).get("config")
-    frame, frame_source = frame_from_context(ctx, frame)
-    named_bounds = _named_bounds(unified)
-    bounds, bounds_source = _resolve_controller_key(
-        "bounds", list(bounds) or None, unified, BOUNDS_DEFAULT
+    site, site_source = site_from_context(ctx, site)
+    area, area_source = _resolve_controller_key(
+        "area", list(area) or None, unified, None
     )
+    if isinstance(area, str):
+        area = [area]
     calibration, calibration_source = _resolve_controller_key(
         "calibration", calibration, unified, None
     )
-    print(f"Frame: {frame} (from {frame_source})")
-    print(f"Bounds: {' '.join(bounds)} (from {bounds_source})")
+    print(f"Site: {site.name} (from {site_source})")
+    print(
+        f"Area: {' '.join(area)} (from {area_source})"
+        if area
+        else "Area: the whole site"
+    )
     print(
         f"Calibration: {calibration} (from {calibration_source})"
         if calibration
@@ -411,9 +398,8 @@ def main(
         "gw_address": gw_address,
         "controller_http_port": controller_http_port,
         "controller_http_host": controller_http_host,
-        "bounds": tuple(bounds),
-        "named_bounds": named_bounds,
-        "frame": frame,
+        "area": tuple(area or ()),
+        "site": site,
         "calibration": calibration,
         "background_map": background_map,
         "simulator_init_state": simulator_init_state,

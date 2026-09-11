@@ -12,7 +12,7 @@ from typing import List, Optional
 import httpx
 
 from dotbot.logger import LOGGER, setup_logging
-from dotbot.models import DotBotBoundsModel, DotBotModel, DotBotQueryModel
+from dotbot.models import DotBotAreaModel, DotBotModel, DotBotQueryModel
 from dotbot.protocol import ApplicationType
 
 
@@ -60,24 +60,24 @@ class RestClient:
                 return [DotBotModel(**dotbot) for dotbot in response.json()]
         return []
 
-    async def fetch_bounds(self) -> list[DotBotBoundsModel]:
-        """Fetch the controller's active bounds, in frame millimetres."""
+    async def fetch_area(self) -> list[DotBotAreaModel]:
+        """Fetch the controller's active area set, in frame millimetres."""
         try:
             response = await self._client.get(
-                f"{self.base_url}/bounds",
+                f"{self.base_url}/area",
                 headers={
                     "Accept": "application/json",
                 },
             )
         except httpx.ConnectError as exc:
-            self._logger.warning(f"Failed to fetch bounds: {exc}")
+            self._logger.warning(f"Failed to fetch the area set: {exc}")
         else:
             if response.status_code != 200:
                 self._logger.warning(
-                    f"Failed to fetch bounds: {response} {response.text}"
+                    f"Failed to fetch the area set: {response} {response.text}"
                 )
-                raise RuntimeError("Failed to fetch bounds")
-        return [DotBotBoundsModel(**item) for item in response.json()]
+                raise RuntimeError("Failed to fetch the area set")
+        return [DotBotAreaModel(**item) for item in response.json()]
 
     async def _send_command(self, address, application, resource, command):
         self._logger.info(

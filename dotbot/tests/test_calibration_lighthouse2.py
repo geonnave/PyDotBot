@@ -14,7 +14,6 @@ import pytest
 
 from dotbot.calibration import lighthouse2
 from dotbot.calibration.lighthouse2 import (
-    Frame,
     LH2Counts,
     LighthouseManager,
     Placement,
@@ -26,9 +25,10 @@ from dotbot.calibration.lighthouse2 import (
     render_calibration,
     resolve_calibration_path,
 )
-from dotbot.calibration.points import resolve_points
+from dotbot.area import Area, AreaRegistry
+from dotbot.calibration.points import collect_header, point_prompt, resolve_points
 from dotbot.calibration.wire import calibration_payload, unpack_payload
-from dotbot.bounds import Bounds, BoundsRegistry
+from dotbot.site import Site
 
 # A plausible wall-mounted station: the magnitude of perspective row real
 # calibration files carry.
@@ -41,7 +41,19 @@ H_TRUE = np.array(
     dtype=np.float64,
 )
 
-ARENA = Bounds(0, 0, 2000, 2000, "arena")
+ARENA = Area(0, 0, 2000, 2000, "arena")
+# The C405 layout, which the package no longer ships: a site is measured.
+C405 = Site(
+    name="c405-arena",
+    anchor="the arena's top-left corner, against the door wall of C405",
+    extent_mm=(2000, 4000),
+    areas={
+        "arena": ARENA,
+        "annex": Area(0, 2000, 2000, 2000, "annex"),
+        "arena+annex": Area(0, 0, 2000, 4000, "arena+annex"),
+        "wing": Area(2000, 2610, 1330, 1390, "wing"),
+    },
+)
 
 
 def _floor_from_camera(homography, cam_x, cam_y):
@@ -182,15 +194,16 @@ def _saved(monkeypatch, tmp_path, **kwargs):
     return manager, manager.save_calibration(tag=kwargs.pop("tag", None))
 
 
-def test_save_writes_schema_2_into_the_frame_directory(monkeypatch, tmp_path):
+def test_save_writes_schema_2_into_the_site_directory(monkeypatch, tmp_path):
     _, path = _saved(monkeypatch, tmp_path)
 
     assert path.parent == tmp_path / "calibrations" / "default"
     parsed = tomllib.loads(path.read_text())
     assert parsed["schema_version"] == 2
-    assert parsed["frame"]["name"] == "default"
-    assert parsed["frame"]["false_origin_mm"] == [0, 0]
-    assert parsed["frame"]["false_origin_at"]
+    assert parsed["site"]["name"] == "default"
+    assert parsed["site"]["anchor"] == ""
+    assert "frame" not in parsed
+    assert "false_origin_mm" not in parsed["site"]
     assert parsed["validity"]["valid_mm"] == [0, 0, 4000, 4500]
     assert parsed["metadata"]["robot"] == "dotbot-v3"
     assert len(parsed["metadata"]["id"]) == 16
@@ -223,7 +236,7 @@ def test_schema_2_round_trips_and_re_solves_to_the_same_matrices_and_id(
     assert loaded.placements[0].points_mm == manager.placements[0].points_mm
 
     re_solved = LighthouseManager(
-        placements=loaded.placements, frame=loaded.frame, valid_mm=loaded.valid_mm
+        placements=loaded.placements, site=loaded.site, valid_mm=loaded.valid_mm
     )
     re_solved.solve()
     assert re_solved.stations[0].homography == loaded.stations[0].homography
@@ -242,12 +255,21 @@ def test_schema_1_file_is_rejected(tmp_path):
         read_calibration_file(path)
 
 
+def test_a_file_carrying_a_frame_table_is_rejected(tmp_path):
+    path = tmp_path / "calibration-2026-01-01T00-00-00Z-deadbeef.toml"
+    path.write_text(
+        'schema_version = 2\n[frame]\nname = "inria-aio-c"\n', encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match=r"\[frame\] is not a table"):
+        read_calibration_file(path)
+
+
 def test_calibration_id_ignores_the_descriptive_fields(monkeypatch, tmp_path):
     _, path = _saved(monkeypatch, tmp_path)
     original = read_calibration_file(path)
     before = original.id
 
-    original.frame.false_origin_at = "somewhere else entirely, 2027"
+    original.site.anchor = "somewhere else entirely, 2027"
     original.created_at = "2030-12-31T23:59:59Z"
     original.tag = "another-session"
     original.robot = "dotbot-v9"
@@ -255,12 +277,24 @@ def test_calibration_id_ignores_the_descriptive_fields(monkeypatch, tmp_path):
     assert original.id == before
 
 
-def test_calibration_id_moves_when_the_false_origin_moves(monkeypatch, tmp_path):
+def test_calibration_id_moves_when_the_site_is_renamed(monkeypatch, tmp_path):
     _, path = _saved(monkeypatch, tmp_path)
     calibration = read_calibration_file(path)
     before = calibration.id
 
-    calibration.frame.false_origin_mm = (1, 0)
+    calibration.site.name = "somewhere-else"
+    assert calibration.id != before
+
+
+def test_calibration_id_moves_when_a_reframe_shifts_the_points(monkeypatch, tmp_path):
+    """Zero is the anchor, so a reframe shows up in `points_mm` alone."""
+    _, path = _saved(monkeypatch, tmp_path)
+    calibration = read_calibration_file(path)
+    before = calibration.id
+
+    calibration.placements[0].points_mm = [
+        (x + 100.0, y) for x, y in calibration.placements[0].points_mm
+    ]
     assert calibration.id != before
 
 
@@ -282,7 +316,7 @@ def test_calibration_id_moves_when_a_point_or_a_matrix_moves(monkeypatch, tmp_pa
     assert calibration.id != before
 
 
-def test_resolve_by_id_prefix_under_the_frame_directory(monkeypatch, tmp_path):
+def test_resolve_by_id_prefix_under_the_site_directory(monkeypatch, tmp_path):
     _, path = _saved(monkeypatch, tmp_path)
     calibration = read_calibration_file(path)
 
@@ -295,14 +329,14 @@ def test_resolve_by_id_prefix_under_the_frame_directory(monkeypatch, tmp_path):
         resolve_calibration_path("ffffffff", root=tmp_path / "calibrations")
 
 
-def test_an_id_prefix_resolves_only_under_the_named_frame(monkeypatch, tmp_path):
-    _, path = _saved(monkeypatch, tmp_path, frame=Frame(name="site-a"))
+def test_an_id_prefix_resolves_only_under_the_named_site(monkeypatch, tmp_path):
+    _, path = _saved(monkeypatch, tmp_path, site=Site(name="site-a"))
     root = tmp_path / "calibrations"
     prefix = path.name.split("-")[-1][:8]
 
-    assert resolve_calibration_path(prefix, root, frame="site-a") == path
+    assert resolve_calibration_path(prefix, root, site="site-a") == path
     with pytest.raises(ValueError, match="no calibration matches"):
-        resolve_calibration_path(prefix, root, frame="site-b")
+        resolve_calibration_path(prefix, root, site="site-b")
 
 
 def test_resolve_prefers_an_actual_path(monkeypatch, tmp_path):
@@ -322,12 +356,16 @@ def test_wire_payload_is_float32_and_round_trips(monkeypatch, tmp_path):
     assert np.allclose(unpacked, calibration.stations[0].homography, rtol=1e-6)
 
 
-# --- points and bounds -----------------------------------------------------
+# --- points and areas ------------------------------------------------------
+
+
+def _mm(spec, registry):
+    return [point.mm for point in resolve_points(spec, registry)]
 
 
 def test_arena_corner_marks_come_from_the_robot_geometry():
     """Every corner insets by the photodiode's distance to the PCB edges."""
-    assert resolve_points("arena:corners", BoundsRegistry()) == [
+    assert _mm("arena:corners", C405.registry()) == [
         (47.0, 18.5),
         (1953.0, 18.5),
         (47.0, 1981.5),
@@ -335,9 +373,9 @@ def test_arena_corner_marks_come_from_the_robot_geometry():
     ]
 
 
-def test_a_taller_bounds_insets_both_ends_by_the_front_clearance():
+def test_a_taller_area_insets_both_ends_by_the_front_clearance():
     """Noses point outward, so the front edge rests on each y line."""
-    assert resolve_points("arena+annex:corners", BoundsRegistry()) == [
+    assert _mm("arena+annex:corners", C405.registry()) == [
         (47.0, 18.5),
         (1953.0, 18.5),
         (47.0, 3981.5),
@@ -346,8 +384,8 @@ def test_a_taller_bounds_insets_both_ends_by_the_front_clearance():
 
 
 def test_corner_marks_follow_an_offset_rectangle():
-    registry = BoundsRegistry(named={"open": Bounds(500, 700, 1000, 1000, "open")})
-    assert resolve_points("open:corners", registry) == [
+    registry = AreaRegistry(named={"open": Area(500, 700, 1000, 1000, "open")})
+    assert _mm("open:corners", registry) == [
         (547.0, 718.5),
         (1453.0, 718.5),
         (547.0, 1681.5),
@@ -357,54 +395,137 @@ def test_corner_marks_follow_an_offset_rectangle():
 
 def test_a_literal_rectangle_carries_the_corner_rule():
     """A taped square needs no config entry: x,y,w,h stands in for a name."""
-    registry = BoundsRegistry()
-    assert resolve_points("750,750,500,500:corners", registry) == [
+    registry = C405.registry()
+    assert _mm("750,750,500,500:corners", registry) == [
         (797.0, 768.5),
         (1203.0, 768.5),
         (797.0, 1231.5),
         (1203.0, 1231.5),
     ]
-    assert resolve_points("750,750,500,500:bottom-right", registry) == [
-        (1203.0, 1231.5)
-    ]
-    assert resolve_points("750,750,500,500", registry) == [(1000.0, 1000.0)]
+    assert _mm("750,750,500,500:bottom-right", registry) == [(1203.0, 1231.5)]
+    assert _mm("750,750,500,500", registry) == [(1000.0, 1000.0)]
 
 
 def test_points_forms():
-    registry = BoundsRegistry()
-    assert resolve_points("1500,2500", registry) == [(1500.0, 2500.0)]
-    assert resolve_points("arena", registry) == [(1000.0, 1000.0)]
-    assert resolve_points("arena:top-right", registry) == [(1953.0, 18.5)]
-    with pytest.raises(ValueError, match="unknown bounds"):
+    registry = C405.registry()
+    assert _mm("1500,2500", registry) == [(1500.0, 2500.0)]
+    assert _mm("arena", registry) == [(1000.0, 1000.0)]
+    assert _mm("arena:top-right", registry) == [(1953.0, 18.5)]
+    with pytest.raises(ValueError, match="unknown area"):
         resolve_points("nowhere", registry)
     with pytest.raises(ValueError, match="four are a rectangle"):
         resolve_points("1,2,3", registry)
 
 
-def test_bounds_resolution_forms():
-    registry = BoundsRegistry()
+def test_an_area_name_in_a_site_with_no_areas_says_so():
+    """A fresh install ships no site, so the message has to name the fix."""
+    with pytest.raises(ValueError, match=r"defines no areas"):
+        resolve_points("arena:corners", Site().registry())
+    assert resolve_points("1500,2500", Site().registry())[0].mm == (1500.0, 2500.0)
+
+
+def test_area_resolution_forms():
+    registry = C405.registry()
     assert registry.resolve("annex").as_dict() == {
         "x": 0,
         "y": 2000,
         "w": 2000,
         "h": 2000,
+        "name": "annex",
     }
     assert registry.resolve("0,0,500,600").as_dict() == {
         "x": 0,
         "y": 0,
         "w": 500,
         "h": 600,
+        "name": "0,0,500,600",
     }
     composite = registry.resolve("arena+wing")
-    assert composite.as_dict() == {"x": 0, "y": 0, "w": 3330, "h": 4000}
+    assert composite.as_dict() == {
+        "x": 0,
+        "y": 0,
+        "w": 3330,
+        "h": 4000,
+        "name": "arena+wing",
+    }
 
 
-def test_frame_defaults_name_the_anchor():
-    """The package names no lab: a real frame name comes from the config."""
-    frame = Frame()
-    assert frame.name == "default"
-    assert frame.false_origin_mm == (0, 0)
-    assert "C405" in frame.false_origin_at
+# --- what the operator reads ------------------------------------------------
+
+
+def test_every_corner_describes_the_pose_before_the_coordinate():
+    prompts = [
+        point_prompt(i, 4, point)
+        for i, point in enumerate(resolve_points("arena:corners", C405.registry()))
+    ]
+    assert prompts[0] == (
+        "point 0 of 4, top-left corner of arena: robot inside the rectangle, "
+        "left edge on the left line, front edge on the top line, nose toward "
+        "the top. Photodiode lands at (47, 18.5) mm. Press Enter when it is "
+        "still."
+    )
+    assert prompts[1] == (
+        "point 1 of 4, top-right corner of arena: robot inside the rectangle, "
+        "right edge on the right line, front edge on the top line, nose "
+        "toward the top. Photodiode lands at (1953, 18.5) mm. Press Enter "
+        "when it is still."
+    )
+    assert prompts[2] == (
+        "point 2 of 4, bottom-left corner of arena: robot inside the "
+        "rectangle, left edge on the left line, front edge on the bottom "
+        "line, nose toward the bottom. Photodiode lands at (47, 1981.5) mm. "
+        "Press Enter when it is still."
+    )
+    assert prompts[3] == (
+        "point 3 of 4, bottom-right corner of arena: robot inside the "
+        "rectangle, right edge on the right line, front edge on the bottom "
+        "line, nose toward the bottom. Photodiode lands at (1953, 1981.5) "
+        "mm. Press Enter when it is still."
+    )
+
+
+def test_a_typed_point_instructs_nothing_beyond_the_coordinate():
+    point = resolve_points("1500,2500", C405.registry())[0]
+    assert point.corner is None
+    assert point.where == "" and point.how == ""
+    assert point_prompt(2, 5, point) == (
+        "point 2 of 5: photodiode on (1500, 2500) mm. Press Enter when it is "
+        "still."
+    )
+
+
+def test_the_header_states_the_site_the_orientation_and_the_rule():
+    header = collect_header(C405, "the config file", 4, 10)
+    assert "site c405-arena (from the config file)" in header
+    assert "x grows right, y grows down" in header
+    assert f"zero is {C405.anchor}" in header
+    assert "nose toward the nearest top or bottom edge" in header
+
+
+def test_the_header_names_the_missing_anchor_key():
+    header = collect_header(Site(), "the default", 4, 10)
+    assert "add `anchor` to [sites.default]" in header
+
+
+def test_the_package_default_site_names_no_lab():
+    """A real site is measured: the package ships a name and nothing else."""
+    site = Site()
+    assert site.name == "default"
+    assert site.anchor == ""
+    assert site.extent_mm is None
+    assert site.areas == {}
+    assert site.valid_mm is None
+
+
+def test_a_site_extent_is_the_plausibility_fence():
+    assert C405.valid_mm == (0, 0, 2000, 4000)
+    assert C405.extent.as_dict() == {
+        "x": 0,
+        "y": 0,
+        "w": 2000,
+        "h": 4000,
+        "name": "c405-arena",
+    }
 
 
 def test_slug_tag_rules():
@@ -426,10 +547,9 @@ created_at = "2026-09-10T09:12:00Z"
 id = "3f9a1c07e2b845d6"
 robot = "dotbot-v3"
 
-[frame]
+[site]
 name = "inria-aio-c"
-false_origin_mm = [0, 0]
-false_origin_at = "arena top-left corner, against the door wall of C405"
+anchor = "the arena's top-left corner, against the door wall of C405"
 
 [validity]
 valid_mm = [0, 0, 4000, 4500]
