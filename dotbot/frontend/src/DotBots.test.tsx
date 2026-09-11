@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 import DotBots from './DotBots';
-import { DotBot, AreaSize } from './types';
+import { DotBot, Bounds } from './types';
 import { maxWaypoints } from './utils/constants';
 
 // Expose callbacks captured from the map mocks so tests can trigger them directly
@@ -32,7 +32,7 @@ vi.mock('./SailBotsMap', () => ({
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-const areaSize: AreaSize = { width: 4000, height: 4000 };
+const bounds: Bounds = { x: 0, y: 0, w: 4000, h: 4000 };
 
 const makeBot = (overrides: Partial<DotBot> = {}): DotBot => ({
   address: 'aabbccddeeff',
@@ -60,7 +60,7 @@ const Wrapper: React.FC<{
   return (
     <DotBots
       dotbots={dotbots}
-      areaSize={areaSize}
+      bounds={bounds}
       updateDotbots={setDotbots}
       publishCommand={publishCommand}
       publish={publish}
@@ -181,7 +181,7 @@ test('mapClicked does nothing when no dotbot is active', () => {
   render(
     <DotBots
       dotbots={[bot]}
-      areaSize={areaSize}
+      bounds={bounds}
       updateDotbots={updateDotbots}
       publishCommand={vi.fn()}
       publish={vi.fn()}
@@ -200,7 +200,7 @@ test('mapClicked does nothing when maxWaypoints is already reached', async () =>
   render(
     <DotBots
       dotbots={[bot]}
-      areaSize={areaSize}
+      bounds={bounds}
       updateDotbots={updateDotbots}
       publishCommand={vi.fn()}
       publish={vi.fn()}

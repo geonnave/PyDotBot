@@ -4,7 +4,7 @@ import { handleDotBotUpdate } from "./utils/helpers";
 
 import {
   apiFetchDotbots,
-  apiFetchMapSize,
+  apiFetchBounds,
   apiFetchBackgroundMap,
   apiUpdateMoveRaw,
   apiUpdateRgbLed,
@@ -12,13 +12,21 @@ import {
   apiClearPositionsHistory,
 } from "./utils/rest";
 import DotBots from './DotBots';
-import { AreaSize, BackgroundMap, DotBot, CommandData, MoveRawData, RgbLedData, WaypointsData, WsMessage } from "./types";
+import { Bounds, BackgroundMap, DotBot, CommandData, MoveRawData, RgbLedData, WaypointsData, WsMessage } from "./types";
 
 import logger from './utils/logger';
 const log = logger.child({ module: 'RestApp' });
 
+function unionBounds(list: Bounds[]): Bounds {
+  const x = Math.min(...list.map(b => b.x));
+  const y = Math.min(...list.map(b => b.y));
+  const xMax = Math.max(...list.map(b => b.x + b.w));
+  const yMax = Math.max(...list.map(b => b.y + b.h));
+  return { x, y, w: xMax - x, h: yMax - y };
+}
+
 const RestApp: React.FC = () => {
-  const [areaSize, setAreaSize] = useState<AreaSize | undefined>(undefined);
+  const [bounds, setBounds] = useState<Bounds | undefined>(undefined);
   const [backgroundMap, setBackgroundMap] = useState<BackgroundMap | undefined>(undefined);
   const [dotbots, setDotbots] = useState<DotBot[]>([]);
   const [qrkeyAvailable, setQrkeyAvailable] = useState<boolean>(false);
@@ -58,10 +66,11 @@ const RestApp: React.FC = () => {
     if (data) setDotbots(data);
   }, [setDotbots]);
 
-  const fetchAreaSize = useCallback(async () => {
-    const data = await apiFetchMapSize().catch(error => console.log(error));
-    if (data) setAreaSize(data);
-  }, [setAreaSize]);
+  const fetchBounds = useCallback(async () => {
+    const data = await apiFetchBounds().catch(error => console.log(error));
+    // The classic map draws one box, so an active set is drawn over its union.
+    if (data && data.length > 0) setBounds(unionBounds(data));
+  }, [setBounds]);
 
   const fetchBackgroundMap = useCallback(async () => {
     const data = await apiFetchBackgroundMap().catch(error => console.log(error));
@@ -185,21 +194,21 @@ const RestApp: React.FC = () => {
     if (!dotbots) {
       fetchDotBots();
     }
-    if (!areaSize) {
-      fetchAreaSize();
+    if (!bounds) {
+      fetchBounds();
     }
     if (!backgroundMap) {
       fetchBackgroundMap();
     }
-  }, [dotbots, areaSize, backgroundMap, fetchDotBots, fetchAreaSize, fetchBackgroundMap]);
+  }, [dotbots, bounds, backgroundMap, fetchDotBots, fetchBounds, fetchBackgroundMap]);
 
   return (
     <>
-      {areaSize && (
+      {bounds && (
         <div id="dotbots">
           <DotBots
             dotbots={dotbots}
-            areaSize={areaSize}
+            bounds={bounds}
             backgroundMap={backgroundMap}
             updateDotbots={setDotbots}
             publishCommand={publishCommand}

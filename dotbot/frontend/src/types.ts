@@ -15,9 +15,12 @@ export interface RgbLed {
   blue: number;
 }
 
-export interface AreaSize {
-  width: number;
-  height: number;
+// GET /controller/bounds - one rectangle of the active bounds, in frame mm.
+export interface Bounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 export interface BackgroundMap {

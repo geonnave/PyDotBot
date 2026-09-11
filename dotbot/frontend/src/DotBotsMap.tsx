@@ -1,6 +1,6 @@
 import React, { memo, useState } from "react";
 import { ApplicationType, inactiveAddress, dotbotRadius } from "./utils/constants";
-import { AreaSize, BackgroundMap, DotBot, LH2Position } from "./types";
+import { Bounds, BackgroundMap, DotBot, LH2Position } from "./types";
 
 interface DotBotsWaypointProps {
   index: number;
@@ -9,7 +9,7 @@ interface DotBotsWaypointProps {
   opacity: string;
   waypoints: LH2Position[];
   threshold: number;
-  areaSize: AreaSize;
+  bounds: Bounds;
   mapSize: number;
 }
 
@@ -18,8 +18,8 @@ const DotBotsWaypoint: React.FC<DotBotsWaypointProps> = (props) => {
     <>
       {props.index === 0 ? (
         <circle
-          cx={props.point.x * props.mapSize / props.areaSize.width}
-          cy={props.point.y * props.mapSize / props.areaSize.width}
+          cx={(props.point.x - props.bounds.x) * props.mapSize / props.bounds.w}
+          cy={(props.point.y - props.bounds.y) * props.mapSize / props.bounds.w}
           r="4"
           fill="none"
           stroke={props.color}
@@ -29,23 +29,23 @@ const DotBotsWaypoint: React.FC<DotBotsWaypointProps> = (props) => {
       ) : (
         <>
           <circle
-            cx={props.point.x * props.mapSize / props.areaSize.width}
-            cy={props.point.y * props.mapSize / props.areaSize.width}
-            r={props.threshold * props.mapSize / props.areaSize.width}
+            cx={(props.point.x - props.bounds.x) * props.mapSize / props.bounds.w}
+            cy={(props.point.y - props.bounds.y) * props.mapSize / props.bounds.w}
+            r={props.threshold * props.mapSize / props.bounds.w}
             fill={props.color}
             stroke="none"
             opacity="10%"
           />
           <line
-            x1={props.waypoints[props.index - 1].x * props.mapSize / props.areaSize.width}
-            y1={props.waypoints[props.index - 1].y * props.mapSize / props.areaSize.width}
-            x2={props.point.x * props.mapSize / props.areaSize.width}
-            y2={props.point.y * props.mapSize / props.areaSize.width}
+            x1={(props.waypoints[props.index - 1].x - props.bounds.x) * props.mapSize / props.bounds.w}
+            y1={(props.waypoints[props.index - 1].y - props.bounds.y) * props.mapSize / props.bounds.w}
+            x2={(props.point.x - props.bounds.x) * props.mapSize / props.bounds.w}
+            y2={(props.point.y - props.bounds.y) * props.mapSize / props.bounds.w}
             stroke={props.color} strokeWidth="2" strokeDasharray="2" opacity={props.opacity}
           />
           <rect
-            x={props.point.x * props.mapSize / props.areaSize.width - 2}
-            y={props.point.y * props.mapSize / props.areaSize.width - 2}
+            x={(props.point.x - props.bounds.x) * props.mapSize / props.bounds.w - 2}
+            y={(props.point.y - props.bounds.y) * props.mapSize / props.bounds.w - 2}
             width="4" height="4" fill={props.color} opacity={props.opacity}
           />
         </>
@@ -60,7 +60,7 @@ interface DotBotsPositionProps {
   color: string;
   opacity: string;
   history: LH2Position[];
-  areaSize: AreaSize;
+  bounds: Bounds;
   mapSize: number;
 }
 
@@ -69,8 +69,8 @@ const DotBotsPosition: React.FC<DotBotsPositionProps> = (props) => {
     <>
       {props.index === 0 ? (
         <circle
-          cx={props.point.x * props.mapSize / props.areaSize.width}
-          cy={props.point.y * props.mapSize / props.areaSize.width}
+          cx={(props.point.x - props.bounds.x) * props.mapSize / props.bounds.w}
+          cy={(props.point.y - props.bounds.y) * props.mapSize / props.bounds.w}
           r="4"
           fill="none"
           stroke={props.color}
@@ -80,16 +80,16 @@ const DotBotsPosition: React.FC<DotBotsPositionProps> = (props) => {
       ) : (
         <>
           <line
-            x1={props.history[props.index - 1].x * props.mapSize / props.areaSize.width}
-            y1={props.history[props.index - 1].y * props.mapSize / props.areaSize.width}
-            x2={props.point.x * props.mapSize / props.areaSize.width}
-            y2={props.point.y * props.mapSize / props.areaSize.width}
+            x1={(props.history[props.index - 1].x - props.bounds.x) * props.mapSize / props.bounds.w}
+            y1={(props.history[props.index - 1].y - props.bounds.y) * props.mapSize / props.bounds.w}
+            x2={(props.point.x - props.bounds.x) * props.mapSize / props.bounds.w}
+            y2={(props.point.y - props.bounds.y) * props.mapSize / props.bounds.w}
             stroke={props.color} strokeWidth="2"
             opacity={props.opacity}
           />
           <circle
-            cx={props.point.x * props.mapSize / props.areaSize.width}
-            cy={props.point.y * props.mapSize / props.areaSize.width}
+            cx={(props.point.x - props.bounds.x) * props.mapSize / props.bounds.w}
+            cy={(props.point.y - props.bounds.y) * props.mapSize / props.bounds.w}
             r="2"
             fill={props.color}
             opacity={props.opacity}
@@ -102,7 +102,7 @@ const DotBotsPosition: React.FC<DotBotsPositionProps> = (props) => {
 
 interface DotBotsMapPointProps {
   dotbot: DotBot;
-  areaSize: AreaSize;
+  bounds: Bounds;
   mapSize: number;
   showHistory: boolean;
   historySize: number;
@@ -119,18 +119,18 @@ const DotBotsMapPoint: React.FC<DotBotsMapPointProps> = memo((props) => {
   }
 
   const lh2Pos = props.dotbot.lh2_position!;
-  const posX = props.mapSize * parseInt(String(lh2Pos.x)) / props.areaSize.width;
-  const posY = props.mapSize * parseInt(String(lh2Pos.y)) / props.areaSize.width;
+  const posX = props.mapSize * (parseInt(String(lh2Pos.x)) - props.bounds.x) / props.bounds.w;
+  const posY = props.mapSize * (parseInt(String(lh2Pos.y)) - props.bounds.y) / props.bounds.w;
 
   const rotation = (props.dotbot.direction !== -1000) ? props.dotbot.direction : 0;
   const isActiveOrHovered = props.dotbot.address === props.active || hovered;
   const radius = isActiveOrHovered
-    ? props.mapSize * (dotbotRadius + 5) / props.areaSize.width
-    : props.mapSize * dotbotRadius / props.areaSize.width;
+    ? props.mapSize * (dotbotRadius + 5) / props.bounds.w
+    : props.mapSize * dotbotRadius / props.bounds.w;
   const directionShift = isActiveOrHovered ? 2 : 1;
   const directionSize = isActiveOrHovered
-    ? props.mapSize * (dotbotRadius + 5) / props.areaSize.width
-    : props.mapSize * dotbotRadius / props.areaSize.width;
+    ? props.mapSize * (dotbotRadius + 5) / props.bounds.w
+    : props.mapSize * dotbotRadius / props.bounds.w;
   const opacity = `${props.dotbot.status === 0 ? "80%" : "20%"}`;
   const waypointOpacity = `${props.dotbot.status === 0 ? "50%" : "10%"}`;
 
@@ -158,7 +158,7 @@ const DotBotsMapPoint: React.FC<DotBotsMapPointProps> = memo((props) => {
             opacity={waypointOpacity}
             waypoints={lh2Waypoints}
             threshold={props.dotbot.waypoints_threshold}
-            areaSize={props.areaSize}
+            bounds={props.bounds}
             mapSize={props.mapSize}
           />
         ))
@@ -174,7 +174,7 @@ const DotBotsMapPoint: React.FC<DotBotsMapPointProps> = memo((props) => {
               color={rgbColor}
               opacity={opacity}
               history={lh2History.slice(-props.historySize)}
-              areaSize={props.areaSize}
+              bounds={props.bounds}
               mapSize={props.mapSize}
             />
           ))
@@ -201,7 +201,7 @@ const DotBotsMapPoint: React.FC<DotBotsMapPointProps> = memo((props) => {
           stroke={`${props.dotbot.address === props.active ? "black" : "none"}`}
           strokeWidth="1">
           <polygon
-            points={`${posX - radius + 10 * props.mapSize / props.areaSize.width},${posY + radius + directionShift} ${posX + radius - 10 * props.mapSize / props.areaSize.width},${posY + radius + directionShift} ${posX},${posY + radius + directionSize + directionShift}`}
+            points={`${posX - radius + 10 * props.mapSize / props.bounds.w},${posY + radius + directionShift} ${posX + radius - 10 * props.mapSize / props.bounds.w},${posY + radius + directionShift} ${posX},${posY + radius + directionSize + directionShift}`}
             fill={rgbColor}
             opacity={opacity}
           />
@@ -214,7 +214,7 @@ const DotBotsMapPoint: React.FC<DotBotsMapPointProps> = memo((props) => {
 interface DotBotsMapProps {
   dotbots: DotBot[];
   active: string;
-  areaSize: AreaSize;
+  bounds: Bounds;
   backgroundMap?: BackgroundMap;
   mapSize: number;
   showHistory: boolean;
@@ -233,7 +233,7 @@ export const DotBotsMap: React.FC<DotBotsMapProps> = (props) => {
     const dim = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - dim.left;
     const y = event.clientY - dim.top;
-    props.mapClicked(x * props.areaSize.width / props.mapSize, y * props.areaSize.width / props.mapSize);
+    props.mapClicked(props.bounds.x + x * props.bounds.w / props.mapSize, props.bounds.y + y * props.bounds.w / props.mapSize);
   };
 
   const updateDisplayGrid = (event: React.ChangeEvent<HTMLInputElement>): void => {
@@ -242,7 +242,7 @@ export const DotBotsMap: React.FC<DotBotsMapProps> = (props) => {
 
   const mapSize = props.mapSize;
   const gridWidth = `${mapSize + 1}px`;
-  const gridHeight = `${mapSize * props.areaSize.height / props.areaSize.width + 1}px`;
+  const gridHeight = `${mapSize * props.bounds.h / props.bounds.w + 1}px`;
 
   return (
     <div className={`${props.dotbots && props.dotbots.length > 0 ? "visible" : "invisible"}`}>
@@ -253,17 +253,17 @@ export const DotBotsMap: React.FC<DotBotsMapProps> = (props) => {
               <defs>
                 <pattern
                   id={`grid${mapSize}`}
-                  width={`${500 * mapSize / props.areaSize.width}`}
-                  height={`${500 * mapSize / props.areaSize.width}`}
+                  width={`${500 * mapSize / props.bounds.w}`}
+                  height={`${500 * mapSize / props.bounds.w}`}
                   patternUnits="userSpaceOnUse"
                 >
                   <rect
-                    width={`${500 * mapSize / props.areaSize.width}`}
-                    height={`${500 * mapSize / props.areaSize.width}`}
+                    width={`${500 * mapSize / props.bounds.w}`}
+                    height={`${500 * mapSize / props.bounds.w}`}
                     fill={`url(#smallGrid${mapSize})`}
                   />
                   <path
-                    d={`M ${500 * mapSize / props.areaSize.width} 0 L 0 0 0 ${500 * mapSize / props.areaSize.width}`}
+                    d={`M ${500 * mapSize / props.bounds.w} 0 L 0 0 0 ${500 * mapSize / props.bounds.w}`}
                     fill="none"
                     stroke="gray"
                     strokeWidth="1"
@@ -290,7 +290,7 @@ export const DotBotsMap: React.FC<DotBotsMapProps> = (props) => {
                     <DotBotsMapPoint
                       key={dotbot.address}
                       dotbot={dotbot}
-                      areaSize={props.areaSize}
+                      bounds={props.bounds}
                       mapSize={props.mapSize}
                       showHistory={props.showHistory}
                       updateActive={props.updateActive}

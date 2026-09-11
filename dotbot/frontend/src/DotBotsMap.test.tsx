@@ -7,12 +7,12 @@ import { DotBotsMap } from './DotBotsMap';
 import { DotBot } from './types';
 import { inactiveAddress } from './utils/constants';
 
-const areaSize = { width: 4000, height: 4000 };
+const bounds = { x: 0, y: 0, w: 4000, h: 4000 };
 
 const defaultProps = {
   dotbots: [] as DotBot[],
   active: inactiveAddress,
-  areaSize,
+  bounds,
   mapSize: 400,
   showHistory: true,
   historySize: 100,

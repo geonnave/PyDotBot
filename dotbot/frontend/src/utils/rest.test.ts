@@ -2,7 +2,7 @@ import { vi } from 'vitest';
 import axios from 'axios';
 import {
   apiFetchDotbots,
-  apiFetchMapSize,
+  apiFetchBounds,
   apiFetchBackgroundMap,
   apiUpdateMoveRaw,
   apiUpdateRgbLed,
@@ -37,20 +37,20 @@ describe('apiFetchDotbots', () => {
   });
 });
 
-// ─── apiFetchMapSize ─────────────────────────────────────────────────────────
+// ─── apiFetchBounds ──────────────────────────────────────────────────────────
 
-describe('apiFetchMapSize', () => {
-  test('GET /controller/map_size and returns data', async () => {
-    const size = { width: 4000, height: 4000 };
-    mockedGet.mockResolvedValueOnce({ data: size });
-    const result = await apiFetchMapSize();
-    expect(mockedGet).toHaveBeenCalledWith(`${API_URL}/controller/map_size`);
-    expect(result).toEqual(size);
+describe('apiFetchBounds', () => {
+  test('GET /controller/bounds and returns the active rectangles', async () => {
+    const bounds = [{ x: 0, y: 2000, w: 2000, h: 2000 }];
+    mockedGet.mockResolvedValueOnce({ data: bounds });
+    const result = await apiFetchBounds();
+    expect(mockedGet).toHaveBeenCalledWith(`${API_URL}/controller/bounds`);
+    expect(result).toEqual(bounds);
   });
 
   test('propagates axios error', async () => {
     mockedGet.mockRejectedValueOnce(new Error('Network Error'));
-    await expect(apiFetchMapSize()).rejects.toThrow('Network Error');
+    await expect(apiFetchBounds()).rejects.toThrow('Network Error');
   });
 });
 

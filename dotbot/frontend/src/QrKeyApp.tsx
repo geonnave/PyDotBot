@@ -6,7 +6,7 @@ import { handleDotBotUpdate } from "./utils/helpers";
 
 import DotBots from './DotBots';
 import QrKeyForm from './QrKeyForm';
-import { AreaSize, DotBot, MqttData, WsMessage } from "./types";
+import { Bounds, DotBot, MqttData, WsMessage } from "./types";
 
 import logger from './utils/logger';
 const log = logger.child({ module: 'QrKeyApp' });
@@ -14,7 +14,7 @@ const log = logger.child({ module: 'QrKeyApp' });
 const QrKeyApp: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState<QrKeyMessage | null>(null);
-  const [areaSize, setAreaSize] = useState<AreaSize>({ height: 2000, width: 2000 });
+  const [bounds, setBounds] = useState<Bounds>({ x: 0, y: 0, w: 2000, h: 2000 });
   const [dotbots, setDotbots] = useState<DotBot[]>([]);
 
   const [ready, clientId, mqttData, setMqttData, publish, publishCommand, sendRequest] = useQrKey({
@@ -31,8 +31,8 @@ const QrKeyApp: React.FC = () => {
     if (message.topic === `/reply/${clientId}`) {
       if (payload.request === RequestType.DotBots) {
         setDotbots(payload.data as DotBot[]);
-      } else if (payload.request === RequestType.AreaSize) {
-        setAreaSize(payload.data as AreaSize);
+      } else if (payload.request === RequestType.Bounds) {
+        setBounds((payload.data as Bounds[])[0]);
       }
     } else if (message.topic === `/notify`) {
       if (payload.cmd === NotificationType.NewDotBot) {
@@ -46,12 +46,12 @@ const QrKeyApp: React.FC = () => {
       }
     }
     setMessage(null);
-  }, [clientId, dotbots, setDotbots, setAreaSize, sendRequest, message, setMessage]);
+  }, [clientId, dotbots, setDotbots, setBounds, sendRequest, message, setMessage]);
 
   useEffect(() => {
     if (clientId) {
       setTimeout(sendRequest, 100, { request: RequestType.DotBots, reply: `${clientId}` });
-      setTimeout(sendRequest, 200, { request: RequestType.AreaSize, reply: `${clientId}` });
+      setTimeout(sendRequest, 200, { request: RequestType.Bounds, reply: `${clientId}` });
     }
   }, [sendRequest, clientId]);
 
@@ -66,7 +66,7 @@ const QrKeyApp: React.FC = () => {
         <div id="dotbots">
           <DotBots
             dotbots={dotbots}
-            areaSize={areaSize}
+            bounds={bounds}
             updateDotbots={setDotbots}
             publishCommand={publishCommand}
             publish={publish}
