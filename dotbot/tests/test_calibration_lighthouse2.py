@@ -42,7 +42,7 @@ H_TRUE = np.array(
     dtype=np.float64,
 )
 
-ARENA = Bounds(0, 0, 2000, 2000, "arena", ("top", "left"))
+ARENA = Bounds(0, 0, 2000, 2000, "arena")
 
 
 def counts_for_camera_point(cam_x, cam_y, lh_index=0) -> LH2Counts:
@@ -330,49 +330,59 @@ def test_wire_payload_is_float32_and_round_trips(monkeypatch, tmp_path):
 
 
 def test_arena_corner_marks_come_from_the_robot_geometry():
-    """Two walls: the mark insets by the photodiode's clearance to each."""
+    """Every corner insets by the photodiode's distance to the PCB edges."""
     assert resolve_points("arena:corners", BoundsRegistry()) == [
-        (50.0, 20.0),
-        (2000.0, 20.0),
-        (50.0, 2000.0),
-        (2000.0, 2000.0),
+        (47.0, 18.5),
+        (1953.0, 18.5),
+        (47.0, 1981.5),
+        (1953.0, 1981.5),
     ]
 
 
-def test_one_wall_insets_only_that_edge():
-    registry = BoundsRegistry(named={"strip": Bounds(0, 0, 1000, 1000, "strip", ("top",))})
-    assert resolve_points("strip:corners", registry) == [
-        (0.0, 20.0),
-        (1000.0, 20.0),
-        (0.0, 1000.0),
-        (1000.0, 1000.0),
+def test_a_taller_bounds_insets_both_ends_by_the_front_clearance():
+    """Noses point outward, so the front edge rests on each y line."""
+    assert resolve_points("arena+annex:corners", BoundsRegistry()) == [
+        (47.0, 18.5),
+        (1953.0, 18.5),
+        (47.0, 3981.5),
+        (1953.0, 3981.5),
     ]
 
 
-def test_no_wall_resolves_to_the_exact_frame_corners():
+def test_corner_marks_follow_an_offset_rectangle():
     registry = BoundsRegistry(named={"open": Bounds(500, 700, 1000, 1000, "open")})
     assert resolve_points("open:corners", registry) == [
-        (500.0, 700.0),
-        (1500.0, 700.0),
-        (500.0, 1700.0),
-        (1500.0, 1700.0),
+        (547.0, 718.5),
+        (1453.0, 718.5),
+        (547.0, 1681.5),
+        (1453.0, 1681.5),
     ]
 
 
-def test_a_bottom_wall_insets_by_the_rear_clearance():
-    registry = BoundsRegistry(
-        named={"back": Bounds(0, 0, 1000, 1000, "back", ("bottom", "right"))}
-    )
-    assert resolve_points("back:bottom-right", registry) == [(950.0, 920.0)]
+def test_a_literal_rectangle_carries_the_corner_rule():
+    """A taped square needs no config entry: x,y,w,h stands in for a name."""
+    registry = BoundsRegistry()
+    assert resolve_points("750,750,500,500:corners", registry) == [
+        (797.0, 768.5),
+        (1203.0, 768.5),
+        (797.0, 1231.5),
+        (1203.0, 1231.5),
+    ]
+    assert resolve_points("750,750,500,500:bottom-right", registry) == [
+        (1203.0, 1231.5)
+    ]
+    assert resolve_points("750,750,500,500", registry) == [(1000.0, 1000.0)]
 
 
 def test_points_forms():
     registry = BoundsRegistry()
     assert resolve_points("1500,2500", registry) == [(1500.0, 2500.0)]
     assert resolve_points("arena", registry) == [(1000.0, 1000.0)]
-    assert resolve_points("arena:top-right", registry) == [(2000.0, 20.0)]
+    assert resolve_points("arena:top-right", registry) == [(1953.0, 18.5)]
     with pytest.raises(ValueError, match="unknown bounds"):
         resolve_points("nowhere", registry)
+    with pytest.raises(ValueError, match="four are a rectangle"):
+        resolve_points("1,2,3", registry)
 
 
 def test_bounds_resolution_forms():
@@ -391,8 +401,6 @@ def test_bounds_resolution_forms():
     }
     composite = registry.resolve("arena+wing")
     assert composite.as_dict() == {"x": 0, "y": 0, "w": 3330, "h": 4000}
-    # The union keeps only the walls that lie on its own outline.
-    assert set(composite.walls) == {"top", "left"}
 
 
 def test_frame_defaults_name_the_anchor():

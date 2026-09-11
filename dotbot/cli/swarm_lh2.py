@@ -90,7 +90,6 @@ def _bounds_registry(ctx):
                 w=table.w,
                 h=table.h,
                 name=name,
-                walls=tuple(table.walls),
             )
             for name, table in tables.items()
         }
@@ -143,8 +142,11 @@ def cmd() -> None:
     multiple=True,
     help=(
         "Where this placement's points are, repeatable: `x,y` in frame mm, a "
-        "bounds name (its centre), `<bounds>:<corner>`, or `<bounds>:corners` "
-        "for all four in capture order. Defaults to `arena:corners`."
+        "rectangle (a bounds name, or `x,y,w,h` in mm) for its centre, "
+        "`<rectangle>:<corner>`, or `<rectangle>:corners` for all four in "
+        "capture order. A corner mark is where the photodiode lands with the "
+        "robot inside the rectangle, PCB edges on its lines, nose toward the "
+        "nearest top or bottom edge. Defaults to `arena:corners`."
     ),
 )
 @click.option(

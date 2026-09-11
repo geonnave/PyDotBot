@@ -137,17 +137,12 @@ class SwarmSection(_Strict):
 
 
 class BoundsSection(_Strict):
-    """One `[bounds.<name>]` table: a rectangle of the frame, in millimetres.
-
-    `walls` names the edges a wall occupies, which is what insets a corner
-    mark by the robot's own clearance.
-    """
+    """One `[bounds.<name>]` table: a rectangle of the frame, in millimetres."""
 
     x: int
     y: int
     w: int
     h: int
-    walls: list[str] = Field(default_factory=list)
 
 
 class ControllerSection(_Strict):

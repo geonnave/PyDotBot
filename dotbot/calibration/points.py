@@ -17,39 +17,25 @@ from dotbot.robots import ROBOT_DEFAULT, robot_geometry
 # The corners of a rectangle, in the order a placement stores them.
 CORNERS = ("top-left", "top-right", "bottom-left", "bottom-right")
 
-# Which edges each corner touches, so a walled edge can inset it.
-_CORNER_EDGES = {
-    "top-left": ("top", "left"),
-    "top-right": ("top", "right"),
-    "bottom-left": ("bottom", "left"),
-    "bottom-right": ("bottom", "right"),
-}
-
 
 def corner_mark(
     bounds: Bounds, corner: str, robot: str = ROBOT_DEFAULT
 ) -> tuple[float, float]:
-    """Where a robot's photodiode lands when placed at `corner`, at heading 0.
+    """Where a robot's photodiode lands when placed at `corner`.
 
-    A corner whose edges are both open resolves to the exact frame corner. A
-    walled edge moves the mark inward by the robot's clearance to that edge,
-    because the body cannot occupy the wall.
+    The robot sits inside the rectangle with its PCB edges on the
+    rectangle's edge lines and its nose toward the nearest top or bottom
+    edge, so the mark is the corner inset by the photodiode's distance to
+    those two edges.
     """
-    if corner not in _CORNER_EDGES:
+    if corner not in CORNERS:
         raise ValueError(
             f"unknown corner {corner!r}; expected one of {', '.join(CORNERS)}"
         )
-    geometry = robot_geometry(robot)
-    vertical, horizontal = _CORNER_EDGES[corner]
-    x = bounds.x if horizontal == "left" else bounds.x_max
-    y = bounds.y if vertical == "top" else bounds.y_max
-    if horizontal in bounds.walls:
-        inset = geometry.wall_inset_mm(horizontal)
-        x = x + inset if horizontal == "left" else x - inset
-    if vertical in bounds.walls:
-        inset = geometry.wall_inset_mm(vertical)
-        y = y + inset if vertical == "top" else y - inset
-    return (float(x), float(y))
+    dx, dy = robot_geometry(robot).photodiode_inset(corner)
+    x = bounds.x if corner.endswith("left") else bounds.x_max
+    y = bounds.y if corner.startswith("top") else bounds.y_max
+    return (x + dx, y + dy)
 
 
 def resolve_points(
@@ -59,10 +45,12 @@ def resolve_points(
 ) -> list[tuple[float, float]]:
     """The frame coordinates one `--points` specification stands for.
 
-    Four forms:
+    Four forms, where `<bounds>` is a name, a `+`-joined composite, or a
+    literal `x,y,w,h` rectangle in millimetres:
 
-    - `x,y` - one literal point in frame millimetres.
-    - `<bounds>` - one point at that bounds' centre.
+    - `x,y` - one literal point in frame millimetres, the photodiode's own
+      position, taken exactly as typed.
+    - `<bounds>` - one point at that rectangle's centre.
     - `<bounds>:<corner>` - one corner mark, `<corner>` from CORNERS.
     - `<bounds>:corners` - all four corner marks, in CORNERS order.
     """
@@ -80,8 +68,13 @@ def resolve_points(
 
     if "," in spec:
         parts = [p.strip() for p in spec.split(",")]
+        if len(parts) == 4:
+            return [registry.resolve(spec).centre]
         if len(parts) != 2:
-            raise ValueError(f"points {spec!r}: a literal point is x,y in frame mm")
+            raise ValueError(
+                f"points {spec!r}: two numbers are a point x,y, four are a "
+                f"rectangle x,y,w,h, both in frame mm"
+            )
         try:
             return [(float(parts[0]), float(parts[1]))]
         except ValueError as exc:

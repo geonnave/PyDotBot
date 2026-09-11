@@ -59,7 +59,6 @@ def _named_bounds(config) -> dict:
             w=table.w,
             h=table.h,
             name=name,
-            walls=tuple(table.walls),
         )
         for name, table in tables.items()
     }

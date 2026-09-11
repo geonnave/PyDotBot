@@ -15,18 +15,13 @@ from dataclasses import dataclass, field
 
 BOUNDS_DEFAULT = "arena"
 
-# Edges of a rectangle, named as the console draws the frame: x grows right,
-# y grows down, so `top` is the low-y edge.
-EDGES = ("top", "bottom", "left", "right")
-
 
 @dataclass(frozen=True)
 class Bounds:
-    """One rectangle in frame millimetres, plus which of its edges are walls.
+    """One rectangle in frame millimetres.
 
-    `walls` matters because a robot cannot put its photodiode on a corner
-    that a wall occupies: a walled edge insets the corner mark by the
-    robot's own clearance.
+    Edges are named as the console draws the frame: x grows right, y grows
+    down, so `top` is the low-y edge.
     """
 
     x: int
@@ -34,15 +29,6 @@ class Bounds:
     w: int
     h: int
     name: str = ""
-    walls: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        for edge in self.walls:
-            if edge not in EDGES:
-                raise ValueError(
-                    f"bounds {self.name or '(unnamed)'}: unknown wall edge "
-                    f"{edge!r}; expected any of {', '.join(EDGES)}"
-                )
 
     @property
     def x_max(self) -> int:
@@ -61,14 +47,13 @@ class Bounds:
         return {"x": self.x, "y": self.y, "w": self.w, "h": self.h}
 
 
-# The C405 layout. The door wall closes the frame on the left and the top, so
-# those are the only walls the room's description pins down.
+# The C405 layout.
 NAMED_BOUNDS_DEFAULT: dict[str, Bounds] = {
-    "arena": Bounds(0, 0, 2000, 2000, "arena", ("top", "left")),
-    "annex": Bounds(0, 2000, 2000, 2000, "annex", ("left",)),
-    "arena+annex": Bounds(0, 0, 2000, 4000, "arena+annex", ("top", "left")),
-    "wing": Bounds(2000, 2610, 1330, 1390, "wing", ()),
-    "dev-corner": Bounds(1000, 0, 1000, 1000, "dev-corner", ("top",)),
+    "arena": Bounds(0, 0, 2000, 2000, "arena"),
+    "annex": Bounds(0, 2000, 2000, 2000, "annex"),
+    "arena+annex": Bounds(0, 0, 2000, 4000, "arena+annex"),
+    "wing": Bounds(2000, 2610, 1330, 1390, "wing"),
+    "dev-corner": Bounds(1000, 0, 1000, 1000, "dev-corner"),
 }
 
 
@@ -83,8 +68,7 @@ class BoundsRegistry:
     def resolve(self, spec: str) -> Bounds:
         """One bounds from a name, a `+`-joined composite, or `x,y,w,h` in mm.
 
-        A composite is the bounding box of its parts and keeps only the walls
-        that lie on that box, since an inner edge of the union is not a wall.
+        A composite is the bounding box of its parts.
         """
         spec = spec.strip()
         if not spec:
@@ -119,27 +103,7 @@ class BoundsRegistry:
         y = min(b.y for b in parts)
         x_max = max(b.x_max for b in parts)
         y_max = max(b.y_max for b in parts)
-        walls = tuple(
-            edge
-            for edge in EDGES
-            if any(
-                edge in b.walls and _edge_on_box(b, edge, x, y, x_max, y_max)
-                for b in parts
-            )
-        )
-        return Bounds(x, y, x_max - x, y_max - y, spec, walls)
-
-
-def _edge_on_box(
-    b: Bounds, edge: str, x: int, y: int, x_max: int, y_max: int
-) -> bool:
-    if edge == "top":
-        return b.y == y
-    if edge == "bottom":
-        return b.y_max == y_max
-    if edge == "left":
-        return b.x == x
-    return b.x_max == x_max
+        return Bounds(x, y, x_max - x, y_max - y, spec)
 
 
 def union(bounds: list[Bounds]) -> Bounds:

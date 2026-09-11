@@ -4,13 +4,12 @@
 """Physical geometry of the robot models the host talks to.
 
 Anything that has to reason about where a robot's sensors sit relative to
-its body reads this: the calibration point resolver offsets a floor mark
-against a wall by the photodiode's distance to the body edge facing it.
+its body reads this: the calibration point resolver offsets a corner mark
+by the photodiode's distance to the body edges resting on that corner.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 ROBOT_DEFAULT = "dotbot-v3"
@@ -57,13 +56,18 @@ class RobotGeometry:
             return self.diode_to_side_mm
         raise ValueError(f"unknown edge {edge!r}; expected top/bottom/left/right")
 
-    def wall_inset_mm(self, edge: str, step: float = 10.0) -> float:
-        """`clearance_mm` rounded up to a multiple of `step`.
+    def photodiode_inset(self, corner: str) -> tuple[float, float]:
+        """The (dx, dy) from a rectangle corner to the photodiode.
 
-        Floor marks are laid with a tape measure, so the inset is rounded to
-        a value an operator can read off one.
+        The robot stands inside the rectangle with its board edges on the
+        rectangle's edge lines and its nose toward the nearest top or bottom
+        edge, so the front edge rests on the horizontal line at every corner
+        and one side edge rests on the vertical one.
         """
-        return math.ceil(self.clearance_mm(edge) / step) * step
+        vertical, _, horizontal = corner.partition("-")
+        dx = self.clearance_mm(horizontal)
+        dy = self.diode_to_front_mm
+        return (dx if horizontal == "left" else -dx, dy if vertical == "top" else -dy)
 
 
 # Measured off the DotBot v3 main board bd1.3a in KiCad: the Edge.Cuts

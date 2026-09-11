@@ -969,7 +969,7 @@ async def test_get_controller_bounds():
     """The active bounds reach a renderer as a list of frame rectangles."""
     from dotbot.bounds import Bounds
 
-    api.controller.bounds = [Bounds(0, 2000, 2000, 2000, "annex", ("left",))]
+    api.controller.bounds = [Bounds(0, 2000, 2000, 2000, "annex")]
     response = await client.get("/controller/bounds")
     assert response.status_code == 200
     assert response.json() == [{"x": 0, "y": 2000, "w": 2000, "h": 2000}]
